@@ -44,6 +44,21 @@ reserve_with_name tsr_id_num, 1
 %define TSR_ID 'ZapT2' ; ZZT all-purpose TSR, v2.0
 %strlen TSR_ID_SIZE TSR_ID
 
+;; 2. Video data
+font_data:
+times 256*14 db 0
+palette_data:
+times 16*3 db 0
+
+;; 3. Resident code
+
+;; 4. Non-resident data
+data:
+db TSR_ID
+
+;; 5. Non-resident code
+; Tasks
+; - Parse subcommand: (none)/i/u/r/info/new
 main:
 mov bx, old_int_10h.segment
 mov [bx], byte 1
@@ -52,6 +67,3 @@ mov [bx], byte 1
 
 mov ah, 0
 int 21h
-
-data:
-db TSR_ID
