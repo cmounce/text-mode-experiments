@@ -151,3 +151,22 @@ ret
 .true:
 cmp al, al
 ret
+
+; Calculates the 32-bit FNV-1a hash of a string and assigns it to a macro variable.
+; Usage: fnv_hash variable_to_assign, 'string to be hashed'
+%macro fnv_hash 2
+%strlen %%num_bytes %2
+%assign %%hash 0x811c9dc5
+%assign %%i 0
+%rep %%num_bytes
+    %assign %%i %%i+1
+    %substr %%byte %2 %%i
+    %assign %%hash ((%%hash ^ %%byte) * 0x01000193) & 0xFFFFFFFF
+%endrep
+%assign %1 %%hash
+%endmacro
+
+%define TSR_ID_STRING "Quantum's all-purpose TSR, version rewrite-in-progress"
+fnv_hash TSR_ID_HASH, TSR_ID_STRING
+segment .text
+tsr_id_hash: dd TSR_ID_HASH
