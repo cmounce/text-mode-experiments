@@ -79,9 +79,7 @@ mov cx, 0
 mov si, arg_string_start_addr
 debug_args:
 call next_token
-mov dx, si
-describe_byte 'Value of SI after next_token() ', dl
-describe_byte 'Value of CL after next_token() ', cl
+inspect 'After next_token(): SI =', si, 'CL =', cl
 cmp cx, 0
 je .break
 mov dl, cl
