@@ -16,40 +16,36 @@ db 63,  0,  32
 db 63,  21, 32
 db 63,  42, 32
 db 63,  63, 32
+.end_of_contents:
 
 segment .text
 ;-------------------------------------------------------------------------------
-; Initialize text-mode palette.
+; Set text-mode palette to the given 16 color palette.
 ;
-; TODO: This is using a hard-coded test palette right now. It will eventually
-; need to find and load palette data from its block of resident memory.
+; Takes a pointer DS:DX to palette data.
 ;-------------------------------------------------------------------------------
 set_palette:
 push bx
 push es
 
+; Set palette colors 0-15
+mov ax, 1012h           ; Set block of DAC registers
+mov bx, ds              ; from palette data at DS:DX
+mov es, bx
+mov bx, 0               ; Set DAC registers 0 through 15
+mov cx, 16              ; (start = 0, count = 16)
+int 10h
+
 ; Make sure registers 0-15 point to colors 0-15
 mov cx, 16
 .register_loop:
 mov ax, 1000h   ; Set palette register
-mov bl, cl      ; Registers 0 through 15...
-dec bl
-mov bh, bl      ; ...get colors 0 through 15
-int 10h
-
-; Set colors 0-15
-mov ax, 1012h           ; Set block of DAC registers
-mov bx, 0               ; from register 0
-mov cx, 16              ; through register 15.
-mov dx, ds
-mov es, dx              ; TODO: Figure out how to load this address
-mov dx, test_palette    ; in a TSR-safe, relocatable-safe manner
-; One possibility: dedicate 2 bytes per table at the start of the TSR.
-; These are 00 00 if the table doesn't exist, or the table's offset if it does.
-; Either this function would read the offsets directly, or wrapper code in the
-; TSR would pass it in (BX) to enable calling from non-resident code.
+mov bl, cl
+dec bl          ; BL = register number (0-15)
+mov bh, bl      ; BH = corresponding color index (0-15)
 int 10h
 
 pop es
 pop bx
+.end_of_contents:   ; Marks code copyable by TSR installation routine
 ret

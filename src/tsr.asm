@@ -1,5 +1,11 @@
 ;; Functions and definitions for TSR-specific stuff
 
+; When processing an interrupt, we reuse the PSP's command-line space as a
+; miniature stack. The last word of the PSP holds the old stack pointer,
+; and the 126 bytes preceding it are our temporary stack space.
+absolute 100h - 2
+old_stack_pointer:
+
 ; The first few bytes following the PSP play double duty.
 ; They initially contain non-resident code, but after TSR installation,
 ; the space will be reused for keeping track of a few variables needed
@@ -9,19 +15,23 @@ absolute 100h
 tsr_id_hash: resb 4
 
 old_int_10h:    ; previous video interrupt
-.segment:   resb 2
 .offset:    resb 2
+.segment:   resb 2
 
 old_int_2fh:    ; TSR multiplex interrupt
-.segment:   resb 2
 .offset:    resb 2
+.segment:   resb 2
 
 ; Allocate space to store the TSR's 1-byte numeric ID (assigned at runtime)
 tsr_id_num: resb 1
 
+palette_offset: resb 2  ; Location of palette data in resident memory
+
+; End of statically-allocated data; generated resident code follows.
+tsr_code_start:
+
 segment .text
-install:
-;; TODO:
+; TODO for full install routine:
 ; 0. Make sure TSR can be installed
 ; 1. Allocate buffer for assembling TSR
 ; 2. Append TSR code/data to buffer
@@ -31,6 +41,122 @@ install:
 ;   c. Jump to PSP
 ; 4. Copy termination code to PSP (optional memory initializer)
 ; 5. Jump to install routine
+
+
+;-------------------------------------------------------------------------------
+; Installs TSR with no pre-installation check and no way to uninstall.
+; Always "succeeds" and never returns.
+;-------------------------------------------------------------------------------
+impolite_install:
+; Allocate buffer on stack
+BUFFER_SIZE equ 20*1024
+sub sp, BUFFER_SIZE
+
+; Appends code fragment to the memory location pointed to by DI
+; Usage: append_to_buffer foo
+; The labels foo and foo.end_of_contents must both exist
+%macro append_to_buffer 1
+mov si, %1
+mov cx, %1.end_of_contents - %1
+rep movsb
+%endmacro
+
+; Assemble TSR code
+mov bp, sp  ; BP = Start of buffer = start of resident code
+mov di, bp
+append_to_buffer int_10h_handler_prefix
+append_to_buffer find_resident_palette
+append_to_buffer set_palette
+append_to_buffer int_10h_handler_suffix
+push di     ; Save address of palette in resident memory
+append_to_buffer test_palette
+mov ax, di
+sub ax, bp  ; AX = Number of bytes of resident code
+
+; Run install routine
+push di
+append_to_buffer finalize_install
+mov cx, ax  ; CX = Number of bytes of resident code
+mov si, bp  ; SI = Start of resident code
+pop bx
+pop ax                  ; Calculate AX=offset of palette assuming segment=CS
+sub ax, bp              ; This will be the location of the palette when the TSR
+add ax, tsr_code_start  ; is installed. This calculation, and the interface with
+push ax                 ; the finalization code in general, needs some work.
+jmp bx
+
+;-------------------------------------------------------------------------------
+; Code fragment: Intercept int 10h and establish our own stack
+;-------------------------------------------------------------------------------
+int_10h_handler_prefix:
+cmp ah, 0                       ; Verify that this call is setting the video mode
+je .set_video_mode
+jmp far [cs:old_int_10h]        ; Otherwise, let the old handler handle it
+.set_video_mode:
+mov [cs:old_stack_pointer], sp  ; Replace caller's stack with our miniature stack
+mov sp, old_stack_pointer
+pushf                       ; Call the old int 10h as if it was
+call far [cs:old_int_10h]   ; a regular subroutine
+pusha
+push ds
+mov ax, cs
+mov ds, ax
+.end_of_contents:
+
+;-------------------------------------------------------------------------------
+; Code fragment: Clean up/restore environment and return from interrupt
+;-------------------------------------------------------------------------------
+int_10h_handler_suffix:
+pop ds
+popa
+mov sp, [cs:old_stack_pointer]
+iret
+.end_of_contents:
+
+;-------------------------------------------------------------------------------
+; Code fragment: Set DX = pointer to palette in resident code
+;-------------------------------------------------------------------------------
+find_resident_palette:
+mov dx, [palette_offset]
+.end_of_contents:
+
+;-------------------------------------------------------------------------------
+; Install code: Overwrite in-memory code with buffer and terminate
+;
+; SI = Start of buffer
+; CX = Size in bytes
+; Stack: Offset of resident palette
+;-------------------------------------------------------------------------------
+finalize_install:
+; Copy TSR code into place
+pop bx
+mov [palette_offset], bx
+push cx
+mov di, tsr_code_start
+rep movsb
+
+; Patch TSR code into interrupt
+cli
+mov     ax, 3510h   ; get and save current 10h vector
+int     21h
+mov     [old_int_10h.offset], bx
+mov     [old_int_10h.segment], es
+mov     ax, 2510h   ; replace current 10h vector
+mov     dx, tsr_code_start  ; TODO: This will need to be more sophisticated in the future because
+                            ; we will have both an int 2Fh handler and an int 10h handler
+int     21h
+sti
+
+; Terminate and stay resident
+mov ax, 3100h
+pop dx          ; Convert the size in bytes
+add dx, tsr_code_start
+add dx, 16 - 1  ; to the size in 16-byte paragraphs,
+mov cl, 4       ; rounding up
+shr dx, cl
+int 21h
+.end_of_contents:
+
 
 ; Calculates the 32-bit FNV-1a hash of a string and assigns it to a macro variable.
 ; Usage: fnv_hash variable_to_assign, 'string to be hashed'
@@ -49,4 +175,4 @@ install:
 %define TSR_ID_STRING "Quantum's all-purpose TSR, version rewrite-in-progress"
 fnv_hash TSR_ID_HASH, TSR_ID_STRING
 segment .data
-tsr_id_hash: dd TSR_ID_HASH
+tsr_id_hash_value: dd TSR_ID_HASH

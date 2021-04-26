@@ -21,15 +21,22 @@ call parse_command_line
 mov al, [args_subcommand]
 cmp al, SUBCOMMAND_PREVIEW
 je .preview
+cmp al, SUBCOMMAND_INSTALL
+je .install
 jmp .exit
 
 .preview:
+mov dx, test_palette
 call set_palette
 jmp .exit
+
+.install:
+jmp impolite_install
 
 .exit:
 mov ah, 0
 int 21h
 
 %include 'args.asm'
+%include 'tsr.asm'
 %include 'video.asm'
