@@ -1,21 +1,22 @@
 segment .data
 test_palette:
-db 0,   0,  32
-db 0,   21, 32
-db 0,   42, 32
-db 0,   63, 32
-db 21,  0,  32
-db 21,  21, 32
-db 21,  42, 32
-db 21,  63, 32
-db 42,  0,  32
-db 42,  21, 32
-db 42,  42, 32
-db 42,  63, 32
-db 63,  0,  32
-db 63,  21, 32
-db 63,  42, 32
-db 63,  63, 32
+; 3*3*2 RGB combinations, with black and white omitted
+db   0,  0, 63
+db   0, 32,  0
+db   0, 32, 63
+db   0, 63,  0
+db   0, 63, 63
+db  32,  0,  0
+db  32,  0, 63
+db  32, 32,  0
+db  32, 32, 63
+db  32, 63,  0
+db  32, 63, 63
+db  63,  0,  0
+db  63,  0, 63
+db  63, 32,  0
+db  63, 32, 63
+db  63, 63,  0
 .end_of_contents:
 
 segment .text
@@ -44,6 +45,7 @@ mov bl, cl
 dec bl          ; BL = register number (0-15)
 mov bh, bl      ; BH = corresponding color index (0-15)
 int 10h
+loop .register_loop
 
 pop es
 pop bx
