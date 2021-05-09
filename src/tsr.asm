@@ -76,42 +76,65 @@ segment .text
 ; Always "succeeds" and never returns.
 ;-------------------------------------------------------------------------------
 impolite_install:
-; Allocate buffer on stack
-BUFFER_SIZE equ 20*1024
-sub sp, BUFFER_SIZE
+    ; Allocate BX = buffer on stack
+    BUFFER_SIZE equ 20*1024
+    sub sp, BUFFER_SIZE
+    mov bx, sp
 
-; Appends code fragment to the memory location pointed to by DI
-; Usage: append_to_buffer foo
-; The labels foo and foo.end_of_contents must both exist
-%macro append_to_buffer 1
-mov si, %1
-mov cx, %1.end_of_contents - %1
-rep movsb
-%endmacro
+    ; Initialize DI to point to an empty Pascal string
+    mov di, bx
+    mov word [di], 0
 
-; Assemble TSR code
-mov bp, sp  ; BP = Start of buffer = start of resident code
-mov di, bp
-append_to_buffer int_10h_handler_prefix
-append_to_buffer find_resident_palette
-append_to_buffer set_palette
-append_to_buffer int_10h_handler_suffix
-push di     ; Save address of palette in resident memory
-append_to_buffer test_palette
-mov ax, di
-sub ax, bp  ; AX = Number of bytes of resident code
+    ; String 1: video interrupt handler
+    %macro append_fragment 1
+        mov si, %1
+        mov cx, %1.end_of_contents - %1
+        call .append_to_pstring
+    %endmacro
+    append_fragment int_10h_handler_prefix
+    append_fragment find_resident_palette
+    append_fragment set_palette
+    append_fragment int_10h_handler_suffix
+    call .new_pstring
 
-; Run install routine
-push di
-append_to_buffer finalize_install
-mov cx, ax  ; CX = Number of bytes of resident code
-mov si, bp  ; SI = Start of resident code
-pop bx
-pop ax                  ; Calculate AX=offset of palette assuming segment=CS
-sub ax, bp              ; This will be the location of the palette when the TSR
-add ax, tsr_code_start  ; is installed. This calculation, and the interface with
-push ax                 ; the finalization code in general, needs some work.
-jmp bx
+    ; String 2: TSR multiplex handler
+    append_fragment int_2fh_handler
+    call .new_pstring
+
+    ; String 3: data blob
+    append_fragment test_palette
+    call .new_pstring
+
+    ; String 4: TSR installation code
+    append_fragment finalize_install
+
+    ; Jump to installation code
+    mov si, bx          ; SI = start of buffer containing strings
+    lea bx, [di + 2]    ; BX = contents of TSR installation string
+                        ; Later, we will set AX = TSR multiplex ID here.
+    jmp bx              ; Jump to finalize_install
+
+    ; Helper: Append SI:CX to Pascal string pointed to by DI
+    ; Sets CX = 0 but otherwise does not clobber any registers
+    .append_to_pstring:
+        push bx
+        mov bx, di          ; BX = pointer to string header
+        add di, 2           ; Skip past string header
+        add di, [bx]        ; Skip past string contents
+        add [bx], cx        ; Update length of string
+        rep movsb           ; Actually append data
+        mov di, bx          ; Restore DI = pointer to string header
+        pop bx
+        ret
+
+    ; Helper: Assuming DI points to an existing Pascal string, create
+    ; an empty string right after it and set DI to point to it.
+    .new_pstring:
+        add di, [di]        ; Skip over string data
+        add di, 2           ; and header,
+        mov [di], word 0    ; and set new string's length = 0
+        ret
+
 
 ;-------------------------------------------------------------------------------
 ; Code fragment: Intercept int 10h and establish our own stack
@@ -151,57 +174,54 @@ mov dx, [palette_offset]
 ;-------------------------------------------------------------------------------
 ; Install code: Overwrite in-memory code with buffer and terminate
 ;
-; SI = Start of buffer
-; CX = Size in bytes
-; Stack: Offset of resident palette
+; AH = TSR multiplex interrupt (usually 2Fh)
+; AL = TSR ID
+; SI = Pointer to array of Pascal strings, in order:
+;   1. Code for video interrupt handler
+;   2. Code for TSR multiplex handler
+;   3. Data blob (palette/font)
 ;-------------------------------------------------------------------------------
-; Brainstorming an API: What data does this function need?
-;   - Blob of resident code/data to install (pointer/length, SI/CX)
-;   - TSR multiplex ID (AX)
-;   - Location of data tables in the blob (BX) (conflict, used for jmp)
-;   - Location of int 10h in the blob   (CX) (conflict)
-;   - Location of int 2fh in the blob   (DX)
-; Data tables can be chained together. The first routine gets a pointer
-; directly to its data. As part of processing, it advances the pointer to the
-; byte following the end of its data -- setting things up for the next routine.
-;
-; The need to pass in locations of 10h/2fh could be eliminated with some
-; cleverness: 2fh's handler is constant length, and if it is placed at the
-; start of the resident code, 10h would have a known location as well.
-; It feels a little inelegant, though.
 finalize_install:
-; Copy TSR code into place
-pop bx
-mov [palette_offset], bx
-push cx
-mov di, tsr_code_start
-rep movsb
+    ; Copy contents of strings to their final location, concatenating them
+    mov di, tsr_code_start
+    mov dx, 3
+    .copy_strings:
+        mov cx, [si]
+        add si, 2
+        push di         ; Save pointer to start of each string's data
+        rep movsb
+        dec dx
+        jnz .copy_strings
 
-; Patch TSR code into interrupt
-cli
-mov     ax, 3510h   ; get and save current 10h vector
-int     21h
-mov     [old_int_10h.offset], bx
-mov     [old_int_10h.segment], es
-mov     ax, 2510h   ; replace current 10h vector
-mov     dx, tsr_code_start  ; TODO: This will need to be more sophisticated in the future because
-                            ; we will have both an int 2Fh handler and an int 10h handler
-int     21h
-sti
+    ; Stack now holds: (data ptr)(multiplex ptr)(video ptr)
+    ; Write pointer to data blob
+    pop word [palette_offset]
 
-; Free environment block before exiting
-mov ah, 49h
-mov es, [2ch]   ; Environment segment from PSP
-int 21h
+    ; TODO: Install DX as pointer to TSR multiplex interrupt
+    cli
+    pop dx  ; Throw away value for now
 
-; Terminate and stay resident
-mov ax, 3100h   ; TSR, return code 0
-pop dx          ; Convert the size in bytes
-add dx, tsr_code_start
-add dx, 16 - 1  ; to the size in 16-byte paragraphs,
-mov cl, 4       ; rounding up
-shr dx, cl
-int 21h
+    ; Patch video interrupt
+    mov     ax, 3510h   ; get and save current 10h vector
+    int     21h
+    mov     [old_int_10h.offset], bx
+    mov     [old_int_10h.segment], es
+    mov     ax, 2510h   ; replace current 10h vector
+    pop     dx
+    int     21h
+    sti
+
+    ; Free environment block before exiting
+    mov ah, 49h
+    mov es, [2ch]   ; Environment segment from PSP
+    int 21h
+
+    ; Terminate and stay resident
+    mov ax, 3100h   ; TSR, return code 0
+    mov dx, di      ; Number of bytes that should remain resident
+    add dx, 16 - 1  ; Make sure division by 16 gets rounded up
+    shr dx, 4       ; DX = number of paragraphs
+    int 21h
 .end_of_contents:
 
 ;-------------------------------------------------------------------------------
