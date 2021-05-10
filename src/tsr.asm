@@ -3,26 +3,34 @@
 ;===============================================================================
 ; Constants
 ;-------------------------------------------------------------------------------
-; Calculates the 32-bit FNV-1a hash of a string and assigns it to a macro variable.
-; Usage: fnv_hash variable_to_assign, 'string to be hashed'
-%macro fnv_hash 2
-%strlen %%num_bytes %2
-%assign %%hash 0x811c9dc5
-%assign %%i 0
-%rep %%num_bytes
-    %assign %%i %%i+1
-    %substr %%byte %2 %%i
-    %assign %%hash ((%%hash ^ %%byte) * 0x01000193) & 0xFFFFFFFF
-%endrep
-%assign %1 %%hash
+; Create a 64-bit identifier by hashing this ID string
+%strcat TSR_ID_STRING "Quantum's all-purpose TSR ", VERSION
+
+; Compile-time 32-bit universal hash function
+; Usage: univ32_hash DEST_VAR, VARIANT, "string to be hashed"
+%macro univ32_hash 3
+    %strlen %%num_bytes %3
+    %assign %%result 0
+    %assign %%i 0
+    %rep %%num_bytes
+        %assign %%i %%i+1
+        %substr %%byte %3 %%i
+        %assign %%result (%%result * %2 + %%byte) % 0x10000000F
+    %endrep
+    %assign %1 %%result & 0xFFFFFFFF
 %endmacro
 
-; Calculate a somewhate-unique 32-bit identifier for our TSR
-%define TSR_ID_STRING "Quantum's all-purpose TSR, version rewrite-in-progress"
-fnv_hash TSR_ID_HASH, TSR_ID_STRING
-TSR_HASH_LO equ TSR_ID_HASH & 0xFFFF
-TSR_HASH_HI equ TSR_ID_HASH >> 16
+; 64-bit hash functions are difficult because NASM complains about integer
+; overflow in macros. So instead, we hash the same string twice, but with
+; two different variants of a 32-bit hash function.
+univ32_hash TSR_HASH_LO, 40364,    TSR_ID_STRING
+univ32_hash TSR_HASH_HI, 1991,     TSR_ID_STRING
 
+segment .data
+; Install/uninstall routines use this hash to identify our TSR in memory
+tsr_id_hash_value:
+dd TSR_HASH_LO, TSR_HASH_HI
+.end_of_contents:
 
 ;===============================================================================
 ; Resident header: statically-allocated variables
@@ -39,16 +47,21 @@ old_stack_pointer:
 ; by the resident code.
 absolute 100h
 
+; Contains hash value to identify the resident memory as our TSR
+tsr_nametag:  resb 8
+
 old_int_10h:    ; previous video interrupt
-.offset:    resb 2
-.segment:   resb 2
+    .offset:    resb 2
+    .segment:   resb 2
 
 old_int_2fh:    ; TSR multiplex interrupt
-.offset:    resb 2
-.segment:   resb 2
+    .offset:    resb 2
+    .segment:   resb 2
 
 ; Allocate space to store the TSR's 1-byte numeric ID (assigned at runtime)
-tsr_id_num: resb 1
+tsr_multiplex:
+    .id:        resb 1
+    .interrupt: resb 1
 
 palette_offset: resb 2  ; Location of palette data in resident memory
 
@@ -85,12 +98,16 @@ impolite_install:
     mov di, bx
     mov word [di], 0
 
-    ; String 1: video interrupt handler
+    ; String 0: TSR ID hash
     %macro append_fragment 1
         mov si, %1
         mov cx, %1.end_of_contents - %1
         call .append_to_pstring
     %endmacro
+    append_fragment tsr_id_hash_value
+    call .new_pstring
+
+    ; String 1: video interrupt handler
     append_fragment int_10h_handler_prefix
     append_fragment find_resident_palette
     append_fragment set_palette
@@ -177,29 +194,33 @@ mov dx, [palette_offset]
 ; AH = TSR multiplex interrupt (usually 2Fh)
 ; AL = TSR ID
 ; SI = Pointer to array of Pascal strings, in order:
+;   0. TSR ID hash value
 ;   1. Code for video interrupt handler
 ;   2. Code for TSR multiplex handler
 ;   3. Data blob (palette/font)
 ;-------------------------------------------------------------------------------
 finalize_install:
-    ; Copy contents of strings to their final location, concatenating them
+    ; Save TSR handler ID in resident global
+    mov [tsr_multiplex], ax
+
+    ; Copy TSR ID hash value to resident header
+    mov di, tsr_nametag
+    call .process_pstring
+
+    ; Copy interrupt handlers and save their addresses
     mov di, tsr_code_start
-    mov dx, 3
-    .copy_strings:
-        mov cx, [si]
-        add si, 2
-        push di         ; Save pointer to start of each string's data
-        rep movsb
-        dec dx
-        jnz .copy_strings
+    call .process_pstring   ; Video interrupt handler
+    push ax
+    call .process_pstring   ; TSR multiplex handler
+    push ax
 
-    ; Stack now holds: (data ptr)(multiplex ptr)(video ptr)
-    ; Write pointer to data blob
-    pop word [palette_offset]
+    ; Copy data blob and write its address to resident global
+    call .process_pstring
+    mov [palette_offset], ax
 
-    ; TODO: Install DX as pointer to TSR multiplex interrupt
+    ; Install interrupts
     cli
-    pop dx  ; Throw away value for now
+    pop dx  ; TODO: install this as address of multiplex handler
 
     ; Patch video interrupt
     mov     ax, 3510h   ; get and save current 10h vector
@@ -222,21 +243,31 @@ finalize_install:
     add dx, 16 - 1  ; Make sure division by 16 gets rounded up
     shr dx, 4       ; DX = number of paragraphs
     int 21h
+
+    ; Helper: Given SI = Pascal-style string, copy its raw contents to DI.
+    ; Advances SI to next string in array, DI to next location to write to.
+    ; Returns AX = start of the copy that was created.
+    .process_pstring:
+        mov cx, [si]
+        add si, 2
+        mov ax, di
+        rep movsb
+        ret
 .end_of_contents:
 
 ;-------------------------------------------------------------------------------
 ; TSR multiplex handler (int 2Fh)
 ;
-; Returns the resident code's segment in BX and the TSR hash in CX:DX.
+; Returns the resident code's segment in ES and its nametag in ES:BX.
 ;-------------------------------------------------------------------------------
 int_2fh_handler:
-cmp ah, [cs:tsr_id_num]
+cmp ah, [cs:tsr_multiplex.id]
 je .match
 jmp far [cs:old_int_2fh]
 .match:
 mov al, 0ffh        ; Indicate installed status
 mov bx, cs
-mov cx, TSR_HASH_LO
-mov dx, TSR_HASH_HI
+mov es, bx
+mov bx, tsr_nametag
 iret
 .end_of_contents:

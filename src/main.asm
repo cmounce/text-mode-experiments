@@ -1,4 +1,5 @@
 ;; ZZT All-Purpose TSR (rewrite)
+%define VERSION "2.0.0-rewrite-in-progress"
 org 100h                ; Adjust addresses for DOS .COM file
 
 segment .text                           ; Non-resident code (parameter parsing, etc)
