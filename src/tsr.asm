@@ -83,6 +83,87 @@ segment .text
 ; 4. Copy termination code to PSP (optional memory initializer)
 ; 5. Jump to install routine
 
+;-------------------------------------------------------------------------------
+; Checks to see if our TSR is already resident in memory.
+;
+; Returns:
+; - AL = an available multiplex ID, or 0 if TSR cannot be installed
+; - CL = the multiplex ID of our TSR, or 0 if it is not installed
+; - DX = code segment of our TSR, or 0 if it is not installed
+;-------------------------------------------------------------------------------
+scan_multiplex_ids:
+    .min_id equ 0C0h
+    .max_id equ 0FFh
+
+    ; When we call int 2Fh, other TSRs might clobber arbitrary registers, so we
+    ; save a bunch of them beforehand. This is basically every register except:
+    ; - Caller-saved registers: AX, CX, DX are acceptable to clobber
+    ; - Registers considered safe after int 2Fh: CS:IP, SS:SP
+    push bx
+    push bp
+    push si
+    push di
+    push ds
+    push es
+
+    mov bp, sp          ; Allocate a stack variable so that if we see an
+    push byte 0         ; available multiplex ID, we can store it here
+
+    mov al, 0           ; AL = 0: TSR installation check
+    mov ah, .max_id     ; AH: Multiplex ID to check
+    .scan_loop:
+        ; Check multiplex ID
+        push ax
+        xor bx, bx  ; Ralf Brown recommends clearing these
+        xor cx, cx
+        xor dx, dx
+        int 2Fh
+        cmp al, 0       ; AL = 0 means that AL was untouched;
+        pop ax          ; nothing lives at this multiplex ID
+        je .available
+
+        ; TSR exists at this multiplex ID: check to see if it's ours
+        mov si, cs                  ; Set up DS:SI = expected name.
+        mov ds, si                  ; We restore DS from CS because the TSR at
+        mov si, tsr_id_hash_value   ; this multiplex might have overwritten it.
+        mov cx, tsr_id_hash_value.end_of_contents - tsr_id_hash_value
+        rep cmpsb       ; If this is our TSR, calling the multiplex handler
+        jne .continue   ; will have already set ES:DI to point to its nametag.
+
+        ; Nametag matches: AH = multiplex ID of our TSR
+        mov ch, 0
+        mov cl, ah  ; CL = multiplex ID
+        xor ax, ax  ; AL = 0: duplicate installation not allowed
+        mov dx, es  ; DX = code segment
+        jmp .finish
+
+        ; AH = an available multiplex ID (no TSR exists here)
+        .available:
+        cmp [bp-1], byte 0  ; Only store the multiplex ID
+        jne .continue       ; if we don't already have one.
+        mov [bp-1], ah
+
+        .continue:
+        dec ah
+        cmp ah, .min_id
+        jge .scan_loop
+
+    ; End of scan loop: our TSR is not installed
+    mov ah, 0
+    mov al, [bp-1]  ; AL = an available multiplex ID (if we found one)
+    xor cx, cx      ; CL = 0: no TSR currently installed, and thus
+    xor dx, dx      ; DX = 0: there is no code segment to return
+
+    .finish:
+    mov sp, bp
+    pop es
+    pop ds
+    pop di
+    pop si
+    pop bp
+    pop bx
+    ret
+
 
 ;-------------------------------------------------------------------------------
 ; Installs TSR with no pre-installation check and no way to uninstall.
@@ -258,7 +339,7 @@ finalize_install:
 ;-------------------------------------------------------------------------------
 ; TSR multiplex handler (int 2Fh)
 ;
-; Returns the resident code's segment in ES and its nametag in ES:BX.
+; Returns the resident code segment in ES and the TSR nametag in ES:DI.
 ;-------------------------------------------------------------------------------
 int_2fh_handler:
 cmp ah, [cs:tsr_multiplex.id]
@@ -266,8 +347,8 @@ je .match
 jmp far [cs:old_int_2fh]
 .match:
 mov al, 0ffh        ; Indicate installed status
-mov bx, cs
-mov es, bx
-mov bx, tsr_nametag
+mov di, cs
+mov es, di
+mov di, tsr_nametag
 iret
 .end_of_contents:
