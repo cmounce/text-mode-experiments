@@ -32,7 +32,12 @@ call set_palette
 jmp .exit
 
 .install:
-jmp impolite_install
+call scan_multiplex_ids
+cmp al, 0
+je .install_fail
+call install_and_terminate
+.install_fail:
+inspect "install failed:", al, cl, dx
 
 .exit:
 mov ah, 0

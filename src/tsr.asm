@@ -72,16 +72,6 @@ tsr_code_start:
 ; Resident code and code fragments
 ;-------------------------------------------------------------------------------
 segment .text
-; TODO for full install routine:
-; 0. Make sure TSR can be installed
-; 1. Allocate buffer for assembling TSR
-; 2. Append TSR code/data to buffer
-; 3. Append install routine to buffer
-;   a. Byte copier
-;   b. Hook-into-interrupts code
-;   c. Jump to PSP
-; 4. Copy termination code to PSP (optional memory initializer)
-; 5. Jump to install routine
 
 ;-------------------------------------------------------------------------------
 ; Checks to see if our TSR is already resident in memory.
@@ -166,14 +156,18 @@ scan_multiplex_ids:
 
 
 ;-------------------------------------------------------------------------------
-; Installs TSR with no pre-installation check and no way to uninstall.
-; Always "succeeds" and never returns.
+; Installs TSR and terminates program.
+;
+; AL = Available multiplex ID to install into (found via scan_multiplex_ids)
 ;-------------------------------------------------------------------------------
-impolite_install:
+install_and_terminate:
     ; Allocate BX = buffer on stack
     BUFFER_SIZE equ 20*1024
     sub sp, BUFFER_SIZE
     mov bx, sp
+
+    ; Save destination multiplex ID
+    push ax
 
     ; Initialize DI to point to an empty Pascal string
     mov di, bx
@@ -209,7 +203,8 @@ impolite_install:
     ; Jump to installation code
     mov si, bx          ; SI = start of buffer containing strings
     lea bx, [di + 2]    ; BX = contents of TSR installation string
-                        ; Later, we will set AX = TSR multiplex ID here.
+    pop ax              ; AL = multiplex ID to use
+    mov ah, 2Fh         ;
     jmp bx              ; Jump to finalize_install
 
     ; Helper: Append SI:CX to Pascal string pointed to by DI
@@ -301,7 +296,15 @@ finalize_install:
 
     ; Install interrupts
     cli
-    pop dx  ; TODO: install this as address of multiplex handler
+
+    ; Patch TSR multiplex interrupt
+    mov     ax, 352Fh   ; get and save current 2Fh vector
+    int     21h
+    mov     [old_int_2fh.offset], bx
+    mov     [old_int_2fh.segment], es
+    mov     ax, 252Fh   ; replace current 2Fh vector
+    pop     dx
+    int     21h
 
     ; Patch video interrupt
     mov     ax, 3510h   ; get and save current 10h vector
@@ -311,6 +314,7 @@ finalize_install:
     mov     ax, 2510h   ; replace current 10h vector
     pop     dx
     int     21h
+
     sti
 
     ; Free environment block before exiting
