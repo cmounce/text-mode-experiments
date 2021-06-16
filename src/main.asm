@@ -24,6 +24,8 @@ cmp al, SUBCOMMAND_PREVIEW
 je .preview
 cmp al, SUBCOMMAND_INSTALL
 je .install
+cmp al, SUBCOMMAND_UNINSTALL
+je .uninstall
 jmp .exit
 
 .preview:
@@ -38,6 +40,22 @@ je .install_fail
 call install_and_terminate
 .install_fail:
 inspect "install failed:", al, cl, dx
+jmp .exit
+
+.uninstall:
+call scan_multiplex_ids
+cmp dx, 0
+je .uninstall_not_found
+call uninstall_tsr
+cmp ax, 0
+je .uninstall_failed
+jmp .exit
+.uninstall_not_found:
+inspect "TSR not in memory"
+jmp .exit
+.uninstall_failed:
+inspect "uninstall failed"
+jmp .exit
 
 .exit:
 mov ah, 0
