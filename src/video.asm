@@ -1,22 +1,23 @@
 segment .data
 test_palette:
-; 3*3*2 RGB combinations, with black and white omitted
-db   0,  0, 63
-db   0, 32,  0
-db   0, 32, 63
-db   0, 63,  0
-db   0, 63, 63
-db  32,  0,  0
-db  32,  0, 63
-db  32, 32,  0
-db  32, 32, 63
-db  32, 63,  0
-db  32, 63, 63
-db  63,  0,  0
-db  63,  0, 63
-db  63, 32,  0
-db  63, 32, 63
-db  63, 63,  0
+; ; 3*3*2 RGB combinations, with black and white omitted
+; db   0,  0, 63
+; db   0, 32,  0
+; db   0, 32, 63
+; db   0, 63,  0
+; db   0, 63, 63
+; db  32,  0,  0
+; db  32,  0, 63
+; db  32, 32,  0
+; db  32, 32, 63
+; db  32, 63,  0
+; db  32, 63, 63
+; db  63,  0,  0
+; db  63,  0, 63
+; db  63, 32,  0
+; db  63, 32, 63
+; db  63, 63,  0
+incbin "../samples/palettes/sweetie.pal"
 .end_of_contents:
 
 segment .text
