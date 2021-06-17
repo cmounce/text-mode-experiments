@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import math
 import numpy as np
-import oklab
+from . import oklab
 import re
 import scipy.optimize
 

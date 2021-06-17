@@ -4,7 +4,7 @@
 # http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
 
 import itertools
-from palette import Palette
+from lib.palette import Palette
 
 
 def quasirandom_r3():
@@ -19,8 +19,8 @@ def quasirandom_r3():
 
 colors = itertools.islice(quasirandom_r3(), 16)
 scatter = Palette(colors)
-with open("../ega.pal", "rb") as f:
+with open("../palettes/ega.pal", "rb") as f:
     ega = Palette.from_bytes(f.read())
 scatter.reorder(ega)
-with open("../scatter.pal", "wb") as f:
+with open("../palettes/scatter.pal", "wb") as f:
     f.write(bytes(scatter))

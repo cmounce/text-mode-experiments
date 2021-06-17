@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import sys
-from palette import Palette
+from lib.palette import Palette
 
 infile = sys.argv[1]
 outfile = sys.argv[2]

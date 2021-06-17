@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from palette import Palette
+from lib.palette import Palette
 import argparse
 
 parser = argparse.ArgumentParser()
