@@ -17,7 +17,7 @@ test_palette:
 ; db  63, 32,  0
 ; db  63, 32, 63
 ; db  63, 63,  0
-incbin "../samples/palettes/sweetie.pal"
+incbin "../goodies/palettes/solarize.pal"
 .end_of_contents:
 
 segment .text

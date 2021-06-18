@@ -5,6 +5,21 @@ from . import oklab
 import re
 import scipy.optimize
 
+COLOR_PATTERNS = [re.compile(s) for s in [
+    # Whitespace-separated decimal numbers at the start of a line
+    # Matches: GIMP palettes, JASC palettes, PPM images
+    r"^\s*(\d{1,3})\s+(\d{1,3})\s+(\d{1,3})\b",
+
+    # Paint.NET
+    r"^FF([0-9A-Fa-f]{6})\b",
+
+    # .hex file
+    r"^([0-9A-Fa-f]{6})\b",
+
+    # CSS color code (with optional alpha channel)
+    r"#([0-9A-Fa-f]{6})(?:[0-9A-Fa-f]{2})?\b"
+]]
+
 
 class Palette:
     def __init__(self, colors):
@@ -15,48 +30,64 @@ class Palette:
 
     @classmethod
     def from_bytes(cls, data):
-        result = cls._from_vga_bytes(data)
-        if result:
-            return result
-        result = cls._from_ascii_hex(data)
-        if result:
-            return result
-        raise ValueError("Not a supported palette format")
-
-    @classmethod
-    def _from_vga_bytes(cls, data):
         "Read 16 colors in VGA palette format (3 bytes/color, range 0-63)"
         if len(data) != 16*3 or any(x > 63 for x in data):
-            return None
+            raise ValueError("Invalid binary palette format")
         floats = [min(1.0, x/63) for x in data]
         colors = [tuple(floats[i:i + 3]) for i in range(0, 16*3, 3)]
         return cls(colors)
 
     @classmethod
-    def _from_ascii_hex(cls, data):
-        """
-        Read colors as 6-digit hex values from an ASCII text file.
+    def from_text(cls, text: str):
+        """Import a palette from any number of text-based formats.
 
-        This function reads Gimp palette files and the HEX format on Lospec.
-        It skips stuff that it doesn't understand, so it can probably read
-        other formats that have one hex color per line.
+        This function expects a line-based format with one color per line,
+        skipping lines that don't contain a color (headers, comments, etc).
+
+        Many palette formats have one color per line, plus a few other lines
+        for headers, comments, etc. This function takes advantage of this
+        common design by throwing a bunch of regexes at each line, ignoring
+        any lines that don't match; it's not a *proper* parser of any one
+        format, but it works on the following formats provided by Lospec:
+
+        - GIMP palette files
+        - JASC/Paintshop Pro
+        - Paint.NET
+        - .hex files
+
+        It can also import other things that match these regexes, such as
+        PPM images, or text files with copy/pasted CSS hex codes.
+
+        Raises ValueError if it doesn't find exactly 16 colors in the palette.
         """
-        lines = re.split(rb"[\r\n]+", data)
+        global COLOR_PATTERNS
         colors = []
-        for line in lines:
-            match = re.match(rb"""
-                [^a-z]*             # Line must not contain other text.
-                                    # Numbers are okay because Gimp palettes
-                                    # use them.
-                (\b[0-9a-f]{6}\b)   # Hex code must be exactly 6 digits.
-                [^a-z]*             # As before: no other text.
-            """, line, re.VERBOSE | re.IGNORECASE)
+        for line in text.splitlines():
+            # Match the line against each of our regexes
+            match = None
+            for pattern in COLOR_PATTERNS:
+                match = pattern.search(line)
+                if match:
+                    break
+
+            # If we got a match, this line represents a color
             if match:
-                hex_str = match[1]
-                components = (hex_str[i:i + 2] for i in range(0, 6, 2))
-                floats = (int(x, base=16)/255 for x in components)
-                colors.append(tuple(floats))
-        return cls(colors) if len(colors) == 16 else None
+                if len(match.groups()) == 1:
+                    # Read hex string
+                    hex_str = match[1]
+                    components = (hex_str[i:i + 2] for i in range(0, 6, 2))
+                    floats = (int(x, base=16)/255 for x in components)
+                    colors.append(tuple(floats))
+                elif len(match.groups()) == 3:
+                    # Read decimal triplet
+                    ints = [int(x) for x in match.groups()]
+                    if all(x < 256 for x in ints):
+                        floats = (x/255 for x in ints)
+                        colors.append(tuple(floats))
+
+        if len(colors) != 16:
+            raise ValueError("Couldn't interpret data as 16-color palette")
+        return cls(colors)
 
     def reorder(self, target):
         """
