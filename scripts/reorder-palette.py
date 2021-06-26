@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-from lib.palette import Palette
 import argparse
+
+from lib.palette import Palette
 
 parser = argparse.ArgumentParser()
 parser.add_argument(

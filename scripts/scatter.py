@@ -4,7 +4,11 @@
 # http://extremelearning.com.au/unreasonable-effectiveness-of-quasirandom-sequences/
 
 import itertools
+import pathlib
+
 from lib.palette import Palette
+
+PALETTES_DIR = pathlib.Path(__file__).parent.parent / "goodies" / "palettes"
 
 
 def quasirandom_r3():
@@ -19,8 +23,8 @@ def quasirandom_r3():
 
 colors = itertools.islice(quasirandom_r3(), 16)
 scatter = Palette(colors)
-with open("../palettes/ega.pal", "rb") as f:
+with open(PALETTES_DIR / "ega.pal", "rb") as f:
     ega = Palette.from_bytes(f.read())
 scatter.reorder(ega)
-with open("../palettes/scatter.pal", "wb") as f:
+with open(PALETTES_DIR / "scatter.pal", "wb") as f:
     f.write(bytes(scatter))
