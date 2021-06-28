@@ -4,12 +4,13 @@ org 100h                ; Adjust addresses for DOS .COM file
 
 segment .text                           ; Non-resident code (parameter parsing, etc)
 segment .data   follows=.text           ; Non-resident data (help text, etc)
-segment .append follows=.data   nobits  ; Reserve space for palette/font appended to .COM file
-segment .bss    follows=.append         ; Non-initialized data, as usual
+segment .append follows=.data           ; Reserve space for palette/font appended to .COM file
+segment .bss    start=20*1024           ; Non-initialized data, as usual
 
-; Allow up to 20k of data to be appended to the .COM file
-segment .append
-resb 20*1024
+; - 0K to 1K-ish: Program code
+; - 1K-ish to 20K: Space for appended data
+; - 20K to 60K: BSS; Buffer space for assembling installable
+; - 60K to 64K: Stack space
 
 ;
 ; Program start
@@ -17,6 +18,14 @@ resb 20*1024
 segment .text
 %include 'debug.asm'
 main:
+; TODO: initialize BSS centrally
+call parse_bundled_data
+cmp ax, 1
+je .bundle_ok
+inspect "bundled data is corrupt"
+jmp .exit
+.bundle_ok:
+
 call parse_command_line
 
 mov al, [args_subcommand]
@@ -62,5 +71,6 @@ mov ah, 0
 int 21h
 
 %include 'args.asm'
+%include 'bundle.asm'
 %include 'tsr.asm'
 %include 'video.asm'
