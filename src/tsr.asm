@@ -194,7 +194,9 @@ install_and_terminate:
     call .new_pstring
 
     ; String 3: data blob
-    append_fragment test_palette
+    mov si, [parsed_bundle.palette] ; We can't use append_fragment here because
+    mov cx, 3*16                    ; the palette comes from the bundle, and it
+    call .append_to_pstring         ; doesn't have labels marking start/end
     call .new_pstring
 
     ; String 4: TSR installation code

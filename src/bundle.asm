@@ -43,9 +43,9 @@ start_of_bundle:
 
 ; Minor hack: initialize the .com file with some palette data.
 ; In the future, we won't do this.
-db 8+48, 0
+db 8+(3*16), 0
 db PALETTE_KEY, "="
-incbin "../goodies/palettes/solarize.pal"
+incbin "../goodies/palettes/rgb332.pal"
 
 ; Terminate the data bundle
 db 0, 0
@@ -173,6 +173,8 @@ get_value_for_key:
     jle .no_match   ; KEY=VALUE has to be longer than KEY because of the '='
 
     ; Verify that KEY=VALUE starts with our KEY
+    add si, 2       ; Skip length prefixes
+    inc di          ; of the two strings
     repe cmpsb
     jne .no_match
 
@@ -181,12 +183,14 @@ get_value_for_key:
     jne .no_match
 
     ; Input matches KEY=. Return VALUE in DX/CX.
-    mov dx, si  ; SI still points to the '=',
-    inc dx      ; so we skip past it.
+    mov dx, si      ; SI points to the '=' separating key and value
+    inc dx          ; DX = start of value
     pop di
     pop si
-    mov cx, dx  ; CX = (start of value) - (start of key-value string)
-    sub cx, si
+    mov cx, si      ; Set CX to point past the end of the KEY=VALUE string
+    add cx, 2       ; by jumping past the length prefix
+    add cx, [si]    ; and the contents of the wstring.
+    sub cx, dx      ; Then, calculate CX = (end of value - start of value).
     ret
 
     ; Input didn't match! Restore everything and return.

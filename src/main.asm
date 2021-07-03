@@ -12,13 +12,16 @@ segment .bss    start=20*1024           ; Non-initialized data, as usual
 ; - 20K to 60K: BSS; Buffer space for assembling installable
 ; - 60K to 64K: Stack space
 
+section .bss
+bss_start:
+
 ;
 ; Program start
 ;
 segment .text
 %include 'debug.asm'
 main:
-; TODO: initialize BSS centrally
+call init_bss
 call parse_bundled_data
 cmp ax, 1
 je .bundle_ok
@@ -38,7 +41,7 @@ je .uninstall
 jmp .exit
 
 .preview:
-mov dx, test_palette
+mov dx, [parsed_bundle.palette]
 call set_palette
 jmp .exit
 
@@ -70,7 +73,21 @@ jmp .exit
 mov ah, 0
 int 21h
 
+
+;-------------------------------------------------------------------------------
+; Initializes BSS section to zeros
+;-------------------------------------------------------------------------------
+init_bss:
+    mov cx, bss_size
+    mov di, section..bss.start
+    mov al, 0
+    rep stosb
+    ret
+
 %include 'args.asm'
 %include 'bundle.asm'
 %include 'tsr.asm'
 %include 'video.asm'
+
+section .bss
+bss_size equ $-bss_start
