@@ -25,10 +25,12 @@ section .data
 ; - We could probably get away without checking to see if "DATA:" exists
 %define DATA_HEADER "DATA:"
 %define PALETTE_KEY "PALETTE"
+%define FONT_KEY "FONT"
 
 ; Define a list of all the valid keys
 bundle_keys:
     .palette:   db_bstring PALETTE_KEY
+    .font:      db_bstring FONT_KEY
     db 0
 
 
@@ -43,12 +45,16 @@ start_of_bundle:
 
 ; Minor hack: initialize the .com file with some palette data.
 ; In the future, we won't do this.
-db 8+(3*16), 0
+dw 8+(3*16)
 db PALETTE_KEY, "="
 incbin "../goodies/palettes/rgb332.pal"
 
+dw 5+(14*256)
+db FONT_KEY, "="
+incbin "../goodies/fonts/fixed.f14"
+
 ; Terminate the data bundle
-db 0, 0
+dw 0
 
 
 ;===============================================================================
@@ -57,6 +63,7 @@ db 0, 0
 section .bss
 parsed_bundle:
     .palette: resb 2
+    .font: resb 2
 
 
 ;===============================================================================
@@ -87,8 +94,12 @@ parse_bundled_data:
         ; Do if/else if/else if... for each of the possible keys
         mov di, bundle_keys.palette ; Key == PALETTE?
         call get_value_for_key
-        cmp cx, 0
+        cmp dx, 0
         jne .palette_key
+        mov di, bundle_keys.font    ; Key == FONT?
+        call get_value_for_key
+        cmp dx, 0
+        jne .font_key
         jmp .continue               ; Unrecognized key: skip it.
 
         ; Load palette data
@@ -96,6 +107,14 @@ parse_bundled_data:
         cmp cx, 3*16                    ; Make sure we have exactly 16 colors
         jne .failure
         mov [parsed_bundle.palette], dx
+        jmp .continue
+
+        ; Load font data
+        .font_key:
+        ; TODO: Allow arbitrary-height fonts
+        cmp cx, 14*256
+        jne .failure
+        mov [parsed_bundle.font], dx
 
         .continue:
         call next_wstring   ; Advance to the next key-value pair
@@ -195,8 +214,8 @@ get_value_for_key:
 
     ; Input didn't match! Restore everything and return.
     .no_match:
-    xor ax, ax
     xor cx, cx
+    xor dx, dx
     pop di
     pop si
     ret

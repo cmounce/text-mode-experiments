@@ -186,6 +186,7 @@ install_and_terminate:
     append_fragment int_10h_handler_prefix
     append_fragment find_resident_palette
     append_fragment set_palette
+    append_fragment set_font
     append_fragment int_10h_handler_suffix
     call .new_pstring
 
@@ -197,6 +198,9 @@ install_and_terminate:
     mov si, [parsed_bundle.palette] ; We can't use append_fragment here because
     mov cx, 3*16                    ; the palette comes from the bundle, and it
     call .append_to_pstring         ; doesn't have labels marking start/end
+    mov si, [parsed_bundle.font]    ; Likewise for the font data.
+    mov cx, 14*256
+    call .append_to_pstring
     call .new_pstring
 
     ; String 4: TSR installation code
