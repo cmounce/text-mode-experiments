@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "9d5e855ece92be6dd8f1b5134daf6af500bb33f13fe94948c46b0253152a0b9f"
+            "sha256": "85021d5c05dc6dd72770b0374220efa97e748e82e4f9eb79aff50836147821b4"
         },
         "pipfile-spec": 6,
         "requires": {
@@ -16,6 +16,14 @@
         ]
     },
     "default": {
+        "bdfparser": {
+            "hashes": [
+                "sha256:62ceed3b90b1fca050fcb414e70cc5b1f4551d57b088f9e7417678563eebf135",
+                "sha256:75cebd7c2f1ed5e5d0985763b255726a9538c602c7c5ca8639707aec54a58683"
+            ],
+            "index": "pypi",
+            "version": "==2.2.0"
+        },
         "numpy": {
             "hashes": [
                 "sha256:1a784e8ff7ea2a32e393cc53eb0003eca1597c7ca628227e34ce34eb11645a0e",
