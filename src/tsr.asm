@@ -198,8 +198,13 @@ install_and_terminate:
     mov si, [parsed_bundle.palette] ; We can't use append_fragment here because
     mov cx, 3*16                    ; the palette comes from the bundle, and it
     call .append_to_pstring         ; doesn't have labels marking start/end
-    mov si, [parsed_bundle.font]    ; Likewise for the font data.
-    mov cx, 14*256
+
+    mov si, parsed_bundle.font_height   ; Likewise for font data.
+    mov cx, 1                           ; We append the font height (1 byte)
+    call .append_to_pstring             ; before appending the glyph data.
+    mov si, [parsed_bundle.font]
+    mov ch, [parsed_bundle.font_height]
+    xor cl, cl
     call .append_to_pstring
     call .new_pstring
 

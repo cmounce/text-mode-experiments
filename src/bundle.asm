@@ -6,23 +6,6 @@
 ;-------------------------------------------------------------------------------
 section .data
 
-; Given "ABC", outputs 'db 3, "CBA"'
-%macro db_pstring_reverse 1
-    %strlen %%n %1
-    %assign %%i %%n
-    %define %%reversed ""
-    %rep %%n
-        %substr %%c %1 %%i
-        %strcat %%reversed %%reversed %%c
-        %assign %%i %%i - 1
-    %endrep
-    db %%n, %%reversed
-%endmacro
-
-; TODO: Is this overkill to reverse every string?
-; - We only have to reverse "DATA:"
-; - There's probably an easier way, too: e.g., check for "DATA" and ":"
-; - We could probably get away without checking to see if "DATA:" exists
 %define DATA_HEADER "DATA:"
 %define PALETTE_KEY "PALETTE"
 %define FONT_KEY "FONT"
@@ -62,8 +45,9 @@ dw 0
 ;-------------------------------------------------------------------------------
 section .bss
 parsed_bundle:
-    .palette: resb 2
-    .font: resb 2
+    .palette:       resb 2
+    .font:          resb 2
+    .font_height:   resb 1
 
 
 ;===============================================================================
@@ -111,10 +95,14 @@ parse_bundled_data:
 
         ; Load font data
         .font_key:
-        ; TODO: Allow arbitrary-height fonts
-        cmp cx, 14*256
+        cmp cl, 0       ; Make sure font is a multiple of 256 bytes
         jne .failure
+        cmp ch, 1       ; Make sure 1 <= font height <= 32
+        jb .failure
+        cmp ch, 32
+        ja .failure
         mov [parsed_bundle.font], dx
+        mov [parsed_bundle.font_height], ch
 
         .continue:
         call next_wstring   ; Advance to the next key-value pair

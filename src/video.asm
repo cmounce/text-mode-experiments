@@ -39,28 +39,35 @@ ret
 ; Set font to the given font data
 ;
 ; Takes a pointer DS:DX to font data.
+; Expects first byte to be the font height, and height*256 subsequent bytes.
 ; Advances DX to point just past the end of the video data.
 ; TODO: Rewrite all this to use a callee-preserved register, like SI
 ;-------------------------------------------------------------------------------
 set_font:
     push bp
+    push bx
     push dx
     push es
 
+    mov bx, dx
+    mov bh, [bx]    ; Character height (from first byte)
+    mov bl, 0       ; Page
+    inc dx          ; Advance DX to point to glyph data
+
     ; Set font
-    mov ax, 1100h
+    mov ax, 1110h
     mov bp, dx
     mov dx, ds
     mov es, dx
     mov cx, 256 ; Number of characters to write
     mov dx, 0   ; Starting index of write
-    mov bh, 14  ; Character height
-    mov bl, 0   ; Page
     int 10h
 
     pop es
     pop dx
+    add dh, bh  ; Advance DX to point past font data
+    add dx, 1   ; and font-height byte
+    pop bx
     pop bp
-    add dx, 14*256
     .end_of_contents:
     ret
