@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import argparse
+import sys
 from typing import List, Optional
 
 import bdfparser
@@ -24,6 +25,7 @@ def main():
     fallback_bitmap = np.zeros((height, 8), dtype=np.uint8)
     for i in range(len(bitmaps)):
         if bitmaps[i] is None:
+            print(f"Warning: no glyph for char {i}", file=sys.stderr)
             bitmaps[i] = fallback_bitmap
 
     # Make the bitmaps all the same size
@@ -122,7 +124,7 @@ def get_codepoints_for_cp437(x) -> List[int]:
         "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒ" \
         "áíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐" \
         "└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀" \
-        "ɑϐΓπ∑ơµτɸϴΩδ∞∅∈∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ "
+        "αßΓπΣσµτΦϴΩδ∞∅∈∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ "
     if x < 32:
         code = ord(LOWER[x])
     else:
