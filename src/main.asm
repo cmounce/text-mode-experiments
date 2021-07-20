@@ -7,8 +7,8 @@ segment .data   follows=.text           ; Non-resident data (help text, etc)
 segment .append follows=.data           ; Reserve space for palette/font appended to .COM file
 segment .bss    start=20*1024           ; Non-initialized data, as usual
 
-; - 0K to 1K-ish: Program code
-; - 1K-ish to 20K: Space for appended data
+; - 0K to 3K-ish: Program code
+; - 3K-ish to 20K: Space for appended data
 ; - 20K to 60K: BSS; Buffer space for assembling installable
 ; - 60K to 64K: Stack space
 
@@ -20,58 +20,59 @@ bss_start:
 ;
 segment .text
 %include 'debug.asm'
+
 main:
-call init_bss
-call parse_bundled_data
-cmp ax, 1
-je .bundle_ok
-inspect "bundled data is corrupt"
-jmp .exit
-.bundle_ok:
+    call init_bss
+    call parse_bundled_data
+    cmp ax, 1
+    je .bundle_ok
+    inspect "bundled data is corrupt"
+    jmp .exit
+    .bundle_ok:
 
-call parse_command_line
+    call parse_command_line
 
-mov al, [args_subcommand]
-cmp al, SUBCOMMAND_PREVIEW
-je .preview
-cmp al, SUBCOMMAND_INSTALL
-je .install
-cmp al, SUBCOMMAND_UNINSTALL
-je .uninstall
-jmp .exit
+    mov al, [args_subcommand]
+    cmp al, SUBCOMMAND_PREVIEW
+    je .preview
+    cmp al, SUBCOMMAND_INSTALL
+    je .install
+    cmp al, SUBCOMMAND_UNINSTALL
+    je .uninstall
+    jmp .exit
 
-.preview:
-mov dx, [parsed_bundle.palette]
-call set_palette
-jmp .exit
+    .preview:
+    mov dx, [parsed_bundle.palette]
+    call set_palette
+    jmp .exit
 
-.install:
-call scan_multiplex_ids
-cmp al, 0
-je .install_fail
-call install_and_terminate
-.install_fail:
-inspect "install failed:", al, cl, dx
-jmp .exit
+    .install:
+    call scan_multiplex_ids
+    cmp al, 0
+    je .install_fail
+    call install_and_terminate
+    .install_fail:
+    inspect "install failed:", al, cl, dx
+    jmp .exit
 
-.uninstall:
-call scan_multiplex_ids
-cmp dx, 0
-je .uninstall_not_found
-call uninstall_tsr
-cmp ax, 0
-je .uninstall_failed
-jmp .exit
-.uninstall_not_found:
-inspect "TSR not in memory"
-jmp .exit
-.uninstall_failed:
-inspect "uninstall failed"
-jmp .exit
+    .uninstall:
+    call scan_multiplex_ids
+    cmp dx, 0
+    je .uninstall_not_found
+    call uninstall_tsr
+    cmp ax, 0
+    je .uninstall_failed
+    jmp .exit
+    .uninstall_not_found:
+    inspect "TSR not in memory"
+    jmp .exit
+    .uninstall_failed:
+    inspect "uninstall failed"
+    jmp .exit
 
-.exit:
-mov ah, 0
-int 21h
+    .exit:
+    mov ah, 0
+    int 21h
 
 
 ;-------------------------------------------------------------------------------
@@ -89,5 +90,7 @@ init_bss:
 %include 'tsr.asm'
 %include 'video.asm'
 
+; Measure the size of .bss
+; This has to be the last thing in main.asm, after all other includes
 section .bss
 bss_size equ $-bss_start
