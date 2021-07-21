@@ -1,4 +1,5 @@
 ;; Code for parsing command-line arguments
+%include 'string.asm'
 
 ;==============================================================================
 ; Constants
@@ -6,6 +7,7 @@
 ; The actual command-line string in the PSP
 arg_string.length   equ 80h
 arg_string.data     equ 81h
+args_list           equ 80h
 
 ; Enum for representing the subcommand
 SUBCOMMAND_UNKNOWN      equ 0
@@ -79,6 +81,103 @@ parsed_args_size equ $-parsed_args
 ;------------------------------
 segment .text
 %include "debug.asm"
+
+;-------------------------------------------------------------------------------
+; Read command line flags and initialize status variables accordingly.
+;
+; This is the main subroutine for parsing the command line, from start to
+; end. It takes no parameters and returns nothing: it just mutates the global
+; variables to match what the command line args specify.
+;-------------------------------------------------------------------------------
+parse_command_line_TODO:
+    call tokenize_args_in_place
+    ; TODO: loop that calls icmp_bstring for each token, for each entry in a table
+
+
+;-------------------------------------------------------------------------------
+; Convert standard PSP argument string into a list of bstrings, in place.
+;-------------------------------------------------------------------------------
+tokenize_args_in_place:
+    push bx
+    push di
+    push si
+
+    ; Set up all our pointers
+    mov si, args_list   ; SI = pointer to copy data from
+    inc si              ;   (skipping the length header)
+    mov di, args_list   ; DI = destination for resulting bstring list
+    xor bx, bx          ; BX = pointer to last character of PSP string,
+    mov bl, [args_list] ;   used for bounds checking
+    add bx, args_list
+
+    ; Copy all tokens
+    .loop:
+        call fast_forward_to_token  ; Get next token
+        cmp ax, 1
+        jne .break                  ; Break if we ran out of tokens;
+        call copy_token_to_bstring  ; otherwise, copy this one.
+    .break:
+
+    mov [di], byte 0    ; Terminate list with a zero-length bstring.
+
+    pop si
+    pop di
+    pop bx
+    ret
+
+
+;-------------------------------------------------------------------------------
+; Advances SI to point to the start of the next token in the PSP string.
+;
+; For bounds checking, takes BX = last character of PSP string.
+; Returns AX = 1 on success, 0 on end of PSP string.
+;-------------------------------------------------------------------------------
+fast_forward_to_token:
+    .loop:
+        cmp si, bx              ; Make sure we're still in bounds
+        ja .end_of_string
+        lodsb                   ; AL = next character
+        call is_token_separator ; ZF = is this character a separator?
+        je .loop                ;   If so, keep looking.
+
+    mov ax, 1   ; Return success
+    dec si      ; SI = first character of token (undo lodsb's last increment)
+    ret
+
+    .end_of_string:
+    xor ax, ax
+    ret
+
+
+;-------------------------------------------------------------------------------
+; Copy token characters from SI into a bstring at DI.
+;
+; For bounds checking, takes BX = last character of PSP string.
+; Assumes SI already points to the first character of a token.
+; Advances SI to point to the byte immediately following the copied data, and
+; likewise for DI.
+;-------------------------------------------------------------------------------
+copy_token_to_bstring:
+    inc di  ; Leave a byte to write the token's length
+
+    ; Copy token characters
+    xor cx, cx                  ; CX = number of characters copied
+    .loop:
+        cmp si, bx              ; Break if we're out of bounds
+        ja .break
+        lodsb                   ; Read character
+        call is_token_separator ; Break if we hit a token separator
+        jz .break
+        stosb                   ; Write character and increment count
+        inc cx
+        jmp .loop
+    .break:
+
+    sub di, cx      ; Temporarily set DI = pointer to length header
+    mov [di], cl    ; Write length header
+    add di, cx      ; Restore DI
+    ret
+
 
 ; The tokenization code in this section uses SI and CX to point to each token
 ; in the parsed command line. SI points to the first byte of the current token,
