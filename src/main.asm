@@ -32,12 +32,12 @@ main:
 
     call parse_command_line
 
-    mov al, [args_subcommand]
-    cmp al, SUBCOMMAND_PREVIEW
+    mov ax, [subcommand_arg]
+    cmp ax, subcommands.preview
     je .preview
-    cmp al, SUBCOMMAND_INSTALL
+    cmp ax, subcommands.install
     je .install
-    cmp al, SUBCOMMAND_UNINSTALL
+    cmp ax, subcommands.uninstall
     je .uninstall
     jmp .exit
 

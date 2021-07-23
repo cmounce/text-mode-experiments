@@ -2,78 +2,105 @@
 %include 'string.asm'
 
 ;==============================================================================
-; Constants
+; Consts
 ;------------------------------------------------------------------------------
-; The actual command-line string in the PSP
-arg_string.length   equ 80h
-arg_string.data     equ 81h
+
+; The command-line string in the PSP.
+; This is initially a single bstring at program start, but
+; tokenize_args_in_place converts it to a list of bstrings.
 args_list           equ 80h
-
-; Enum for representing the subcommand
-SUBCOMMAND_UNKNOWN      equ 0
-SUBCOMMAND_PREVIEW      equ 1
-SUBCOMMAND_INSTALL      equ 2
-SUBCOMMAND_UNINSTALL    equ 3
-SUBCOMMAND_RESET        equ 4
-SUBCOMMAND_INFO         equ 5
-SUBCOMMAND_NEW          equ 6
-
-; Consts to represent the state of boolean options
-FLAG_FALSE      equ 0   ; Flag not set
-FLAG_TRUE       equ 1   ; Flag set
-FLAG_FORBIDDEN  equ 80h ; A previous command-line option means this flag *must not* be set
 
 
 ;===============================================================================
 ; Strings
 ;-------------------------------------------------------------------------------
 section .data
-; Define a table of subcommands and their corresponding enum values.
-; Usage: def_subcommand "foo" SUBCOMMAND_FOO
-%macro def_subcommand 2
-    %strlen %%n %1
-    db %%n, %1  ; Store subcommand name as a Pascal string
-    db %2       ; Subcommand's enum value immediately follows the string
+
+; Define a list of all the subcommand strings, with a named label for each one.
+; These labels are used like enum values, allowing storage in registers and
+; convenient comparisons: e.g., does AX == subcommands.install?
+%macro db_subcommand 1
+    %deftok %%t %1
+    .%[%%t]:
+    db_bstring %1
 %endmacro
-subcommand_table:
-def_subcommand "preview",   SUBCOMMAND_PREVIEW
-def_subcommand "i",         SUBCOMMAND_INSTALL
-def_subcommand "install",   SUBCOMMAND_INSTALL
-def_subcommand "u",         SUBCOMMAND_UNINSTALL
-def_subcommand "uninstall", SUBCOMMAND_UNINSTALL
-def_subcommand "reset",     SUBCOMMAND_RESET
-def_subcommand "info",      SUBCOMMAND_INFO
-def_subcommand "new",       SUBCOMMAND_NEW
-db 0    ; End of table
+subcommands:
+    ; Each subcommand begins with a different letter, in order to allow the
+    ; user to make single-character abbreviations (e.g., "foo i" to install).
+    db_subcommand "about"
+    db_subcommand "install"
+    db_subcommand "new"
+    db_subcommand "preview"
+    db_subcommand "reset"
+    db_subcommand "uninstall"
+    db 0    ; end of list
+
+
+; Helper for simultaneously declaring a list of variable-length bstrings in
+; initialized memory with correspondingly-labeled array elements in BSS.
+; This ensures that the two collections are the same length and the exact same
+; order, allowing the arg parser to iterate over both in lockstep.
+%macro db_option 4
+    %define %%array %1
+    %define %%size  %2
+    %define %%label %3
+    %define %%str   %4
+
+    %ifndef %[%%array]_BYTES
+        %assign %[%%array]_BYTES 0
+    %endif
+    .%[%%label]:            db_bstring %%str
+    %[%%array].%[%%label]   equ %%array + %[%%array]_BYTES
+    %assign %[%%array]_BYTES %[%%array]_BYTES + %%size
+%endmacro
+
+
+; Define a list of all possible boolean flags, along with an array of
+; booleans in BSS so we can track which options are enabled.
+%macro db_optbool 2
+    db_option boolean_args, 1, %1, %2
+%endmacro
+boolean_options:
+    db_optbool nine_dot,    "/9"    ; font width = 9 pixels
+    ; TODO: is there any need for disabling Line Graphics mode?
+    db_optbool help,        "/?"    ; help
+    db_optbool intensity,   "/i"    ; high-intensity backgrounds (no blinking)
+    db 0    ; end of list
+
+
+; Define a list of all possible string options, along with an array of
+; bstring pointers in BSS so we can track which options are enabled.
+%macro db_optstr 2
+    db_option string_args, 2, %1, %2
+%endmacro
+string_options:
+    db_optstr font,             "/f"    ; font file
+    db_optstr secondary_font,   "/f2"   ; secondary font file (multi-charset)
+    db_optstr init_memory,      "/m"    ; initialize memory (e.g., /m=0)
+    db_optstr output,           "/o"    ; write to output file
+    db_optstr palette,          "/p"    ; palette file
+    db 0    ; end of list
 
 
 ;==============================================================================
-; Data structures
+; Parsed data
 ;------------------------------------------------------------------------------
 segment .bss
-parsed_args:
-; Subcommand enum
-args_subcommand: resb 1
 
-; On/off flags
-args_flags:
-.help:          resb 1
-.font:          resb 1
-.palette:       resb 1
-.blink_on:      resb 1
-.blink_off:     resb 1
-.memory_rand:   resb 1
-.memory_zero:   resb 1
+; Pointer to a bstring from the subcommands list, e.g., subcommands.install
+subcommand_arg:
+    resw 1
 
-; Buffers for filenames
-cli_font_filename:
-.length:    resb 1
-.bytes:     resb 12
-cli_palette_filename:
-.length:    resb 1
-.bytes:     resb 12
+; Array of one-byte booleans, corresponding to elements of boolean_options.
+; Each one has a corresponding label, e.g., "/?" will set boolean_args.help.
+boolean_args:
+    resb boolean_args_BYTES
 
-parsed_args_size equ $-parsed_args
+; Array of bstring pointers, corresponding to elements of string_options.
+; As before, each one has a label, e.g., "/f blah" will set string_args.font
+; to point to "blah". If option is not present, the pointer will be 0/null.
+string_args:
+    resb string_args_BYTES
 
 
 ;==============================
@@ -89,9 +116,71 @@ segment .text
 ; end. It takes no parameters and returns nothing: it just mutates the global
 ; variables to match what the command line args specify.
 ;-------------------------------------------------------------------------------
-parse_command_line_TODO:
+parse_command_line:
+    push si
+
     call tokenize_args_in_place
-    ; TODO: loop that calls icmp_bstring for each token, for each entry in a table
+    mov si, args_list
+    call try_parse_subcommand
+
+    ; TODO: Parsing for options
+
+    pop si
+    ret
+
+
+;-------------------------------------------------------------------------------
+; Tries to parse the bstring in SI as a subcommand.
+;
+; If SI is a valid subcommand, advances SI to point to the next bstring.
+; Otherwise, SI is left unchanged and subcommands.preview is set as a default.
+;-------------------------------------------------------------------------------
+try_parse_subcommand:
+    push di
+
+    ; Loop DI over all possible subcommands, comparing each one to SI
+    mov di, subcommands
+    .loop:
+        cmp [di], byte 0            ; Break if we run out of subcommands
+        je .break
+
+        ; TODO: Maybe add an iprefix_bstring function to string.asm?
+        call icmp_bstring           ; If the strings match...
+        je .finish
+        call is_short_subcommand    ; ...or if SI is an abbreviation of DI,
+        je .finish                  ; then we've found our subcommand.
+
+        next_bstring di             ; Otherwise, advance DI to the next one.
+        jmp .loop
+    .break:
+
+    ; If we make it all the way through the loop without finding a match,
+    ; set "preview" as our default.
+    mov di, subcommands.preview
+
+    .finish:
+    mov [subcommand_arg], di
+    pop di
+    ret
+
+
+;-------------------------------------------------------------------------------
+; Returns whether SI is a one-character abbreviation of the bstring in DI.
+;
+; Examples: "i" or "I" would match "install", but "x" or "inst" would not.
+; Returns ZF = 0 if there's a match, nonzero otherwise.
+;-------------------------------------------------------------------------------
+is_short_subcommand:
+    cmp byte [si], 1            ; Is the input string one character long?
+    jne .ret
+    mov al, [si+1]              ; Get the only character of SI
+    call tolower_accumulator
+    mov ah, al
+    mov al, [di+1]              ; Get first character of DI
+    call tolower_accumulator
+    cmp ah, al                  ; Do a case-insensitive comparison
+    .ret:
+    ret
 
 
 ;-------------------------------------------------------------------------------
@@ -112,10 +201,10 @@ tokenize_args_in_place:
 
     ; Copy all tokens
     .loop:
-        call fast_forward_to_token  ; Get next token
-        cmp ax, 1
-        jne .break                  ; Break if we ran out of tokens;
-        call copy_token_to_bstring  ; otherwise, copy this one.
+        call fast_forward_to_token  ; Advance SI to point to next token.
+        cmp ax, 1                   ; If we run out of tokens, break.
+        jne .break
+        call copy_token_to_bstring  ; Otherwise, copy the token to DI.
     .break:
 
     mov [di], byte 0    ; Terminate list with a zero-length bstring.
@@ -154,8 +243,8 @@ fast_forward_to_token:
 ;
 ; For bounds checking, takes BX = last character of PSP string.
 ; Assumes SI already points to the first character of a token.
-; Advances SI to point to the byte immediately following the copied data, and
-; likewise for DI.
+; Advances SI to point to the byte immediately following the copied data,
+; and likewise for DI.
 ;-------------------------------------------------------------------------------
 copy_token_to_bstring:
     inc di  ; Leave a byte to write the token's length
@@ -173,204 +262,11 @@ copy_token_to_bstring:
         jmp .loop
     .break:
 
-    sub di, cx      ; Temporarily set DI = pointer to length header
-    mov [di], cl    ; Write length header
-    add di, cx      ; Restore DI
+    sub di, cx          ; Temporarily set DI = pointer to first character
+    mov [di - 1], cl    ; Write length header
+    add di, cx          ; Restore DI
     ret
 
-
-; The tokenization code in this section uses SI and CX to point to each token
-; in the parsed command line. SI points to the first byte of the current token,
-; and CX indicates the length of the token in bytes.
-;
-; Functions that take a token will use these registers to accept it, and in
-; general, functions in this section will not clobber these two registers.
-
-;-------------------------------------------------------------------------------
-; Read command line flags and initialize status variables accordingly.
-;
-; This is the main subroutine for parsing the command line, from start to
-; end. It takes no parameters and returns nothing: it just mutates the global
-; variables to match what the command line args specify.
-;-------------------------------------------------------------------------------
-parse_command_line:
-    ; Parse the first token as an optional subcommand
-    call parse_first_token
-    call try_consume_subcommand
-    mov al, [args_subcommand]
-    inspect "Subcommand enum:", al
-
-    ; Cycle through the remaining tokens
-    cmp cx, 0
-    je .ret
-    .loop:
-        call parse_next_token
-        cmp cx, 0
-        je .ret
-        inspect "Parsed token of length", cl
-        jmp .loop
-
-    .ret:
-    ret
-
-; TODO: would it be better if there was a single consume_token command?
-;   1. If it begins with a /, it tries to parse it as a flag
-;       1b. If it's a flag that takes a parameter, parse a parameter as well
-;   2. If it doesn't, it tries to parse it as a subcommand
-; Advantage: It would always consume a token.
-
-; TODO: How to handle errors? There are multiple:
-;   - Invalid argument %s
-;   - Flag %s requires a filename
-; Maybe return an error enum? Include a string in SI/CX?
-; Also TODO: Who should handle printing the error?
-; Maybe we just return AL=status and SI/CX the relevant string
-
-
-;-------------------------------------------------------------------------------
-; Sets args_subcommand based on the token currently pointed to by SI/CX
-;-------------------------------------------------------------------------------
-try_consume_subcommand:
-    mov [args_subcommand], byte SUBCOMMAND_PREVIEW  ; Default subcommand if none is provided
-    cmp cx, 0               ; No token to read
-    je .ret
-    cmp [si], byte '/'      ; Token is a flag, not a subcommand
-    je .ret
-    ; TODO: Would this be any more elegant with a different table structure?
-    push di
-    mov di, subcommand_table    ; Walk through every entry in subcommand_table,
-    .loop:                      ; looking for something that equals SI/CX
-        mov dh, 0
-        mov dl, [di]
-        cmp dx, 0               ; We hit the end of the table
-        je .no_match
-        inc di                  ; DI/DX now point to the next string in the table
-        call icompare_str       ; If DI/DX == SI/CX, we found our subcommand
-        je .match
-        add di, dx              ; DI/DX != SI/CX, so advance past the string
-        inc di                  ; and the enum at the end of the string
-        jmp .loop
-    .no_match:
-    mov [args_subcommand], byte SUBCOMMAND_UNKNOWN
-    jmp .restore
-    .match:
-    add di, dx                  ; Advance DI to point to enum that follows string
-    mov dl, [di]
-    mov [args_subcommand], dl
-    .restore:
-    pop di
-    call parse_next_token
-    .ret:
-    ret
-
-;-------------------------------------------------------------------------------
-; Compares strings in SI/CX and DI/DX, case-insensitively.
-;
-; Sets ZF=1 if equal, ZF=0 if not.
-; Clobbers AX.
-;-------------------------------------------------------------------------------
-icompare_str:
-    cmp cx, dx      ; Return ZF=0 if lengths don't match.
-    jne .ret        ; The cmp sets ZF for us, so we can return right away.
-    push si
-    push di
-    .loop:          ; Loop CX times over chars
-        mov al, [si]    ; Read/advance SI pointer
-        inc si
-        call to_lower
-        mov ah, al
-        mov al, [di]    ; Read/advance DI pointer
-        inc di
-        call to_lower
-        cmp ah, al      ; Return ZF=0 if any pair of chars doesn't match.
-        jne .restore    ; Again, the cmp sets ZF for us.
-        loop .loop
-    ; If we reach this point, all chars match, so the strings match.
-    ; The loop instruction set CX to 0 (and thus ZF=1, which we return with).
-    .restore:
-    pop di
-    pop si
-    mov cx, dx      ; We've already verified the strings are the same length
-    .ret:
-    ret
-
-;-------------------------------------------------------------------------------
-; Makes character in AL lowercase.
-; Clobbers no registers!
-;-------------------------------------------------------------------------------
-to_lower:
-    cmp al, 'A'
-    jl .ret
-    cmp al, 'Z'
-    jg .ret
-    add al, ('a' - 'A')
-    .ret:
-    ret
-
-;-------------------------------------------------------------------------------
-; Sets up SI/CX to point to the first token in the argument string.
-;
-; Returns CX=0 if there are no tokens.
-;-------------------------------------------------------------------------------
-parse_first_token:
-    mov cx, 1
-    mov si, arg_string.data - 1
-    call parse_next_token
-    ret
-
-;-------------------------------------------------------------------------------
-; Advances SI/CX to point to the next token in the argument string.
-;
-; Call with CX=0 to start parsing from the beginning.
-; Call with SI/CX pointing to the previously-parsed token to get the next one.
-;
-; Returns CX=0 once the end of the string has been reached.
-;
-; Clobbers AX.
-;-------------------------------------------------------------------------------
-parse_next_token:
-    cmp cx, 0                           ; Make sure we have a previous token before continuing
-    je .ret
-
-    ; Move SI to point to the first char following the previous token.
-    ; We also repurpose CX within this function: CX = number of bytes remaining.
-    add si, cx                          ; Go to character following previous token
-    mov cx, arg_string.data
-    add cl, [arg_string.length]         ; CX = pointer to end of string
-    sub cx, si                          ; CX = number of remaining characters, including char pointed at by SI
-    jle .end_of_string
-
-    ; Skip SI past any token-separating characters
-    .skip_loop:
-        mov al, [si]
-        call is_token_separator
-        jne .token_start
-        inc si                  ; Advance to next character
-        dec cx
-        jnz .skip_loop
-    .end_of_string:
-    mov cx, 0               ; We hit the end of the string
-    ret
-
-    ; SI = the start of a token. Now find where the token ends.
-    .token_start:
-    push si
-    .count_loop:
-        inc si
-        dec cx
-        jz .count_break
-        mov al, [si]
-        call is_token_separator
-        je .count_break
-        jmp .count_loop
-    .count_break:
-
-    ; We found both ends of the token! Calculate its size and return it
-    mov cx, si
-    pop si
-    sub cx, si
-    .ret:
-    ret
 
 ;-------------------------------------------------------------------------------
 ; Returns ZF=1 if the character in AL is a token separator.

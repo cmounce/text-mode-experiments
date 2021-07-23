@@ -16,6 +16,17 @@
     db %%n, %1
 %endmacro
 
+; Advance a register to point to the next bstring in a list.
+; Usage: next_bstring si
+; Does not stop at end of list; caller is responsible for checking [reg] == 0.
+%macro next_bstring 1
+    mov ax, %1
+    inc ax          ; Add header length
+    add al, [%1]    ; Add string length
+    adc ah, 0
+    mov %1, ax
+%endmacro
+
 
 ;===============================================================================
 ; Functions
@@ -65,6 +76,7 @@ icmp_bstring:
 ; The caller is responsible for checking [SI] == 0.
 ;-------------------------------------------------------------------------------
 next_wstring:
+    ; TODO: Would this be better as a macro?
     add si, [si]
     add si, 2
     ret
