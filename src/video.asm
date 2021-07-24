@@ -1,6 +1,16 @@
 segment .text
 
 ;-------------------------------------------------------------------------------
+; Reset video mode
+;-------------------------------------------------------------------------------
+reset_video:
+    ; TODO: Get the original video mode and store it somewhere, so we can
+    ; return to the exact same settings (resolution, 8-vs-9 dot, etc)?
+    mov ax, 0003h
+    int 10h
+    ret
+
+;-------------------------------------------------------------------------------
 ; Set text-mode palette to the given 16 color palette.
 ;
 ; Takes a pointer DS:DX to palette data.

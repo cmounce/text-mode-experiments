@@ -47,6 +47,8 @@ main:
     je .install
     cmp ax, subcommands.uninstall
     je .uninstall
+    cmp ax, subcommands.reset
+    je .reset
     jmp .exit
 
     .preview:
@@ -76,6 +78,10 @@ main:
     jmp .exit
     .uninstall_failed:
     println_literal "uninstall failed"
+    jmp .exit
+
+    .reset:
+    call reset_video
     jmp .exit
 
     .exit:
