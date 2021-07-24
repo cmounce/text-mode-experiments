@@ -18,19 +18,25 @@ bss_start:
 ;
 ; Program start
 ;
-segment .text
+section .text
+jmp main
 %include 'debug.asm'
+%include 'print.asm'
 
 main:
     call init_bss
     call parse_bundled_data
     cmp ax, 1
     je .bundle_ok
-    inspect "bundled data is corrupt"
+    println_literal "bundled data is corrupt"
     jmp .exit
     .bundle_ok:
 
     call parse_command_line
+    print_literal "Subcommand: "
+    mov bx, [subcommand_arg]
+    call print_bstring
+    print_literal `\r\n`
 
     mov ax, [subcommand_arg]
     cmp ax, subcommands.preview
@@ -64,10 +70,10 @@ main:
     je .uninstall_failed
     jmp .exit
     .uninstall_not_found:
-    inspect "TSR not in memory"
+    println_literal "TSR not in memory"
     jmp .exit
     .uninstall_failed:
-    inspect "uninstall failed"
+    println_literal "uninstall failed"
     jmp .exit
 
     .exit:
