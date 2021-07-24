@@ -12,16 +12,18 @@ segment .bss    start=20*1024           ; Non-initialized data, as usual
 ; - 20K to 60K: BSS; Buffer space for assembling installable
 ; - 60K to 64K: Stack space
 
-section .bss
-bss_start:
-
-;
+;==============================================================================
 ; Program start
-;
+;------------------------------------------------------------------------------
 section .text
 jmp main
+
+%include 'args.asm'
+%include 'bundle.asm'
 %include 'debug.asm'
 %include 'print.asm'
+%include 'tsr.asm'
+%include 'video.asm'
 
 main:
     call init_bss
@@ -91,12 +93,9 @@ init_bss:
     rep stosb
     ret
 
-%include 'args.asm'
-%include 'bundle.asm'
-%include 'tsr.asm'
-%include 'video.asm'
 
-; Measure the size of .bss
-; This has to be the last thing in main.asm, after all other includes
+; Measure the size of .bss.
+; In order for this to include everything, nothing can be added to .bss after
+; this point, which is why we compute this at the end of main.asm.
 section .bss
-bss_size equ $-bss_start
+bss_size equ $ - $$
