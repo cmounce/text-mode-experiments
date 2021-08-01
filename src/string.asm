@@ -39,11 +39,10 @@
 ; Usage: next_bstring si
 ; Does not stop at end of list; caller is responsible for checking [reg] == 0.
 %macro next_bstring 1
-    mov ax, %1
-    inc ax          ; Add header length
-    add al, [%1]    ; Add string length
-    adc ah, 0
-    mov %1, ax
+    xor ah, ah      ; AX = string length
+    mov al, [%1]
+    inc %1          ; String register += 1 + string length
+    add %1, ax
 %endmacro
 
 
