@@ -6,6 +6,25 @@
 ; Macros
 ;-------------------------------------------------------------------------------
 
+; Prepend a wstring length header to arbitrary assembly. Usage:
+;       foo:
+;       begin_wstring
+;           ; Arbitrary assembly...
+;       end_wstring
+; In the above example, foo points to a wstring containing the assembled bytes
+; of the code between the delimiters. Additionally, the macro defines a label
+; foo.contents pointing to the raw bytes (skipping the length header).
+%macro begin_wstring 0
+    %push fragment
+    dw %$fragment_size
+    %$fragment_start:
+    .contents:
+%endmacro
+%macro end_wstring 0
+    %$fragment_size equ $ - %$fragment_start
+    %pop
+%endmacro
+
 ; Like db, but adds a single-byte length prefix before the given string.
 ; Example: 'db_bstring "ABC"' outputs 'db 3, "ABC"'
 %macro db_bstring 1
