@@ -26,7 +26,7 @@
 univ32_hash TSR_HASH_LO, 40364,    TSR_ID_STRING
 univ32_hash TSR_HASH_HI, 1991,     TSR_ID_STRING
 
-segment .data
+section .data
 ; Install/uninstall routines use this hash to identify our TSR in memory
 tsr_id_hash_value:
 dd TSR_HASH_LO, TSR_HASH_HI
@@ -71,7 +71,7 @@ tsr_code_start:
 ;===============================================================================
 ; Resident code and code fragments
 ;-------------------------------------------------------------------------------
-segment .text
+section .text
 
 ;-------------------------------------------------------------------------------
 ; Checks to see if our TSR is already resident in memory.

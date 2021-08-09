@@ -163,7 +163,7 @@ _check_single_multiplex_id:
 ;===============================================================================
 ; Resident code and code fragments
 ;-------------------------------------------------------------------------------
-segment .text
+section .text
 
 ; Plan for organization
 ; - Non-resident code goes in install.asm

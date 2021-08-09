@@ -85,7 +85,7 @@ string_options:
 ;==============================================================================
 ; Parsed data
 ;------------------------------------------------------------------------------
-segment .bss
+section .bss
 
 ; Pointer to a bstring from the subcommands list, e.g., subcommands.install
 subcommand_arg:
@@ -106,7 +106,7 @@ string_args:
 ;==============================
 ; Subroutines
 ;------------------------------
-segment .text
+section .text
 %include "debug.asm"
 
 ;-------------------------------------------------------------------------------
