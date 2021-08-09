@@ -419,6 +419,6 @@ jmp far [cs:old_int_2fh]
 mov al, 0ffh        ; Indicate installed status
 mov di, cs
 mov es, di
-mov di, tsr_nametag
+mov di, tsr_nametag ; TODO: save a couple bytes by setting DI outside the TSR
 iret
 .end_of_contents:
