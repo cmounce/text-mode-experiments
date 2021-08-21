@@ -1,5 +1,4 @@
 ;; ZZT All-Purpose TSR (rewrite)
-%define VERSION "2.0.0-rewrite-in-progress"
 org 100h                ; Adjust addresses for DOS .COM file
 
 section .text                           ; Non-resident code (parameter parsing, etc)
@@ -8,7 +7,7 @@ section .append follows=.data           ; Reserve space for palette/font appende
 section .bss    start=20*1024           ; Non-initialized data, as usual
 
 ; Define a buffer that begins just after .bss and stretches until the stack.
-buffer equ section..bss.start + bss_size
+global_buffer equ section..bss.start + bss_size
 
 ; - 0K to 3K-ish: Program code
 ; - 3K-ish to 20K: Space for appended data

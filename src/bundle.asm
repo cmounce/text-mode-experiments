@@ -105,7 +105,7 @@ parse_bundled_data:
         mov [parsed_bundle.font_height], ch
 
         .continue:
-        call next_wstring   ; Advance to the next key-value pair
+        next_wstring si ; Advance to the next key-value pair
     jmp .loop
     .break:
 
@@ -138,7 +138,7 @@ validate_bundle_structure:
         cmp [si], word 0            ; Loop until we hit the end of the list
         je .break
         mov bx, si                  ; BX = old string, SI = next string
-        call next_wstring
+        next_wstring si
         cmp si, bx                  ; Make sure we moved forward relative to
         jbe .invalid                ; BX, and that we didn't wrap around.
         cmp si, section..bss.start  ; Make sure we didn't hit the BSS section.

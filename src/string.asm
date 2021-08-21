@@ -22,6 +22,7 @@
 %endmacro
 %macro end_wstring 0
     %$fragment_size equ $ - %$fragment_start
+    .length equ %$fragment_size
     %pop
 %endmacro
 
@@ -45,11 +46,44 @@
     add %1, ax
 %endmacro
 
+; Advance a register to point to the next wstring in a list.
+; Usage: next_wstring si
+; Does not stop at end of list; caller is responsible for checking [reg] == 0.
+%macro next_wstring 1
+    add %1, [%1]    ; Advance pointer by the number of bytes in the wstring
+    add %1, 2       ; plus the number of bytes in the length header
+%endmacro
+
 
 ;===============================================================================
 ; Functions
 ;-------------------------------------------------------------------------------
 section .text
+
+;-------------------------------------------------------------------------------
+; Copies bytes from SI onto the end of DI.
+;
+; Assumes that the bytes following the end of DI are safe to overwrite.
+;-------------------------------------------------------------------------------
+concat_wstring:
+    push di
+    push si
+
+    ; Copy SI's bytes to end of DI
+    mov cx, [si]    ; CX = number of bytes to append
+    add si, 2       ; SI = first byte to copy
+    next_wstring di ; DI = first byte to write to
+    rep movsb
+
+    ; Restore original wstring pointers
+    pop si
+    pop di
+
+    ; Update DI's size
+    mov cx, [si]
+    add [di], cx
+
+    ret
 
 ;-------------------------------------------------------------------------------
 ; Performs a case-insensitive comparison of SI and DI.
@@ -84,19 +118,6 @@ icmp_bstring:
     .ret:
     pop si
     pop di
-    ret
-
-
-;-------------------------------------------------------------------------------
-; Advance SI to point to the next wstring in a list.
-;
-; This function does not stop when it hits the end of a list!
-; The caller is responsible for checking [SI] == 0.
-;-------------------------------------------------------------------------------
-next_wstring:
-    ; TODO: Would this be better as a macro?
-    add si, [si]
-    add si, 2
     ret
 
 

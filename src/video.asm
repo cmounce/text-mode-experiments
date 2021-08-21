@@ -1,4 +1,63 @@
+;; Routines for setting font, palette, etc.
+%include 'string.asm'
+
+;===============================================================================
+; Non-resident code
+;-------------------------------------------------------------------------------
 section .text
+
+;-------------------------------------------------------------------------------
+; Append resident font/palette code to the wstring in DI.
+;
+; This code looks for video data starting at resident_data, which means in most
+; cases this code cannot be executed directly: the TSR must be installed first.
+;
+; The generated code clobbers SI when run (though this function doesn't).
+;-------------------------------------------------------------------------------
+concat_resident_video_code_wstring:
+    push si
+
+    mov si, _initialize_si_code
+    call concat_wstring
+
+    cmp [parsed_bundle.palette], word 0
+    je .skip_palette
+    mov si, _palette_code
+    call concat_wstring
+    .skip_palette:
+
+    cmp [parsed_bundle.font], word 0
+    je .skip_font
+    mov si, _font_code
+    call concat_wstring
+    .skip_font:
+
+    pop si
+    ret
+
+;-------------------------------------------------------------------------------
+; Append resident font/palette data to the wstring in DI.
+;-------------------------------------------------------------------------------
+concat_video_data_wstring:
+    push si
+
+    mov si, [parsed_bundle.palette]
+    cmp si, 0
+    je .skip_palette
+    call concat_wstring
+    .skip_palette:
+
+    mov si, [parsed_bundle.font]
+    cmp si, 0
+    je .skip_font
+    ; TODO: Copy font size byte
+    ; TODO: Fix these to copy from bytes instead of from wstring. Library fn?
+    call concat_wstring
+    .skip_font:
+
+    pop si
+    ret
+
 
 ;-------------------------------------------------------------------------------
 ; Reset video mode
@@ -6,78 +65,91 @@ section .text
 reset_video:
     ; TODO: Get the original video mode and store it somewhere, so we can
     ; return to the exact same settings (resolution, 8-vs-9 dot, etc)?
+    ; Probably just a call to int 10, AH=1B
     mov ax, 0003h
     int 10h
     ret
 
+
+;===============================================================================
+; Resident code
+;-------------------------------------------------------------------------------
+
+;-------------------------------------------------------------------------------
+; Sets SI to point to the resident_data label.
+;-------------------------------------------------------------------------------
+_initialize_si_code:
+begin_wstring
+    mov si, resident_data
+end_wstring
+
 ;-------------------------------------------------------------------------------
 ; Set text-mode palette to the given 16 color palette.
 ;
-; Takes a pointer DS:DX to palette data.
-; Advances DX to point just past the end of the palette data.
+; Takes a pointer DS:SI to palette data.
+; Advances SI to point just past the end of the palette data.
 ;-------------------------------------------------------------------------------
-set_palette:
-push bx
-push es
+_palette_code:
+begin_wstring
+    push bx
+    push es
 
-; Set palette colors 0-15
-mov ax, 1012h           ; Set block of DAC registers
-mov bx, ds              ; from palette data at DS:DX
-mov es, bx
-mov bx, 0               ; Set DAC registers 0 through 15
-mov cx, 16              ; (start = 0, count = 16)
-int 10h
+    ; Set palette colors 0-15
+    mov ax, 1012h           ; Set block of DAC registers
+    mov dx, ds              ; ES:DX = palette data located at DS:SI
+    mov es, dx
+    mov dx, si
+    xor bx, bx              ; Starting color = 0
+    mov cx, 16              ; Number of colors = 16
+    int 10h
 
-; Make sure registers 0-15 point to colors 0-15
-mov cx, 16
-.register_loop:
-mov ax, 1000h   ; Set palette register
-mov bl, cl
-dec bl          ; BL = register number (0-15)
-mov bh, bl      ; BH = corresponding color index (0-15)
-int 10h
-loop .register_loop
+    ; Set palette registers 0-15 to point to colors 0-15.
+    ; From the previous interrupt, BH/BL should still be 0,
+    ; and CX should still be 16.
+    .loop:
+        mov ax, 1000h   ; Set palette register
+        int 10h
+        inc bh          ; Advance to next palette color
+        inc bl          ; and next palette register
+        loop .loop
 
-pop es
-pop bx
-add dx, 3*16
-.end_of_contents:   ; Marks code copyable by TSR installation routine
-ret
-
+    pop es
+    pop bx
+    add si, 3*16    ; Advance past all palette data
+end_wstring
 
 ;-------------------------------------------------------------------------------
 ; Set font to the given font data
 ;
-; Takes a pointer DS:DX to font data.
-; Expects first byte to be the font height, and height*256 subsequent bytes.
-; Advances DX to point just past the end of the video data.
-; TODO: Rewrite all this to use a callee-preserved register, like SI
+; Takes a pointer DS:SI to font data.
+; Expects the first byte of data to represent the font height, to be followed
+; by height*256 bytes worth of bitmap data.
+; Advances SI to point just past the end of the video data.
 ;-------------------------------------------------------------------------------
-set_font:
+_font_code:
+begin_wstring
     push bp
     push bx
-    push dx
     push es
 
-    mov bx, dx
-    mov bh, [bx]    ; Character height (from first byte)
-    mov bl, 0       ; Page
-    inc dx          ; Advance DX to point to glyph data
-
     ; Set font
-    mov ax, 1110h
-    mov bp, dx
-    mov dx, ds
-    mov es, dx
-    mov cx, 256 ; Number of characters to write
-    mov dx, 0   ; Starting index of write
+    mov ax, 1110h   ; Load font data
+    mov bl, 0       ; BL = table to load into
+    mov bh, [si]    ; Read BH = height of font, advancing data pointer
+    inc si
+    mov cx, 256     ; CX = number of characters to write
+    xor dx, dx      ; DX = first character to write
+    mov bp, ds      ; Set ES:BP to our font data (DS:SI)
+    mov es, bp
+    mov bp, si
     int 10h
 
+    ; Advance data pointer
+    mov ax, si
+    add ah, bh  ; AX += 256*height
+    mov si, ax
+
     pop es
-    pop dx
-    add dh, bh  ; Advance DX to point past font data
-    add dx, 1   ; and font-height byte
     pop bx
     pop bp
-    .end_of_contents:
-    ret
+end_wstring
