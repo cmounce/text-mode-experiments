@@ -45,9 +45,8 @@ dw 0
 ;-------------------------------------------------------------------------------
 section .bss
 parsed_bundle:
-    .palette:       resb 2
-    .font:          resb 2
-    .font_height:   resb 1
+    .palette:       resw 1
+    .font:          resw 1
 
 
 ;===============================================================================
@@ -75,34 +74,32 @@ parse_bundled_data:
         cmp [si], word 0    ; Stop at the end of the list
         je .break
 
-        ; Do if/else if/else if... for each of the possible keys
-        mov di, bundle_keys.palette ; Key == PALETTE?
-        call get_value_for_key
-        cmp dx, 0
+        ; Check against each of the possible keys
+        mov di, bundle_keys.palette ; PALETTE
+        call try_strip_key_prefix
         jne .palette_key
-        mov di, bundle_keys.font    ; Key == FONT?
-        call get_value_for_key
-        cmp dx, 0
+        mov di, bundle_keys.font    ; FONT
+        call try_strip_key_prefix
         jne .font_key
         jmp .continue               ; Unrecognized key: skip it.
 
         ; Load palette data
         .palette_key:
-        cmp cx, 3*16                    ; Make sure we have exactly 16 colors
+        cmp [si], 3*16                  ; Make sure we have exactly 16 colors
         jne .failure
         mov [parsed_bundle.palette], dx
         jmp .continue
 
         ; Load font data
         .font_key:
+        mov cx, [si]
         cmp cl, 0       ; Make sure font is a multiple of 256 bytes
         jne .failure
         cmp ch, 1       ; Make sure 1 <= font height <= 32
         jb .failure
         cmp ch, 32
         ja .failure
-        mov [parsed_bundle.font], dx
-        mov [parsed_bundle.font_height], ch
+        mov [parsed_bundle.font], si
 
         .continue:
         next_wstring si ; Advance to the next key-value pair
@@ -161,49 +158,46 @@ validate_bundle_structure:
 
 
 ;-------------------------------------------------------------------------------
-; Checks the given key-value pair to see if it starts with the given key.
+; Removes "KEY=" from a key-value string, but only if it matches the given key.
 ;
 ; SI = wstring of a key-value pair, e.g., "FOO=123"
-; DI = bstring of a key, e.g., "FOO"
-; If the key matches, returns DX = pointer to value and CX = length of value.
-; If it doesn't, returns CX = DX = 0.
+; DI = bstring of a key to compare against, e.g., "FOO"
+; If keys match, returns ZF = 0 and mutated string in SI.
+; If they don't, returns ZF = 1 and leaves SI alone.
 ;-------------------------------------------------------------------------------
-get_value_for_key:
-    push si
+try_strip_key_prefix:
     push di
-
-    ; Get the lengths of the two strings
-    mov ax, [si]    ; AX = length of KEY=VALUE
+    push si
     xor cx, cx
-    mov cl, [di]    ; CX = length of KEY
+
+    ; Get lengths of the two input strings
+    mov ax, [si]        ; AX = length of key-value pair
+    mov cl, [di]        ; CX = length of key to compare with
     cmp ax, cx
-    jle .no_match   ; KEY=VALUE has to be longer than KEY because of the '='
+    jbe .no_match       ; Key-value pair is too short to contain key + '='
 
-    ; Verify that KEY=VALUE starts with our KEY
-    add si, 2       ; Skip length prefixes
-    inc di          ; of the two strings
+    ; Verify that key-value pair starts with our key
+    add si, 2           ; Skip past wstring and
+    inc di              ; bstring length headers
     repe cmpsb
-    jne .no_match
-
-    ; Verify that KEY is followed by '='
+    jne .no_match       ; Keys don't match
     cmp byte [si], '='
-    jne .no_match
+    jne .no_match       ; Key not terminated with delimiter '='
 
-    ; Input matches KEY=. Return VALUE in DX/CX.
-    mov dx, si      ; SI points to the '=' separating key and value
-    inc dx          ; DX = start of value
+    ; Keys match: remove key prefix from the start of the wstring
+    pop si              ; Restore old pointers
     pop di
-    pop si
-    mov cx, si      ; Set CX to point past the end of the KEY=VALUE string
-    add cx, 2       ; by jumping past the length prefix
-    add cx, [si]    ; and the contents of the wstring.
-    sub cx, dx      ; Then, calculate CX = (end of value - start of value).
+    mov cl, [di]
+    inc cx              ; CX = length of "KEY="
+    mox ax, [si]
+    sub ax, cx          ; AX = new length of wstring
+    add si, cx          ; Mutate SI to remove prefix and
+    mov [si], ax        ; write new length header
+    xor ax, ax          ; Set ZF=1 (keys matched)
     ret
 
-    ; Input didn't match! Restore everything and return.
+    ; All jumps here should leave ZF=0 (keys didn't match)
     .no_match:
-    xor cx, cx
-    xor dx, dx
-    pop di
     pop si
+    pop di
     ret
