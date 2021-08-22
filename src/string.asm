@@ -61,6 +61,28 @@
 section .text
 
 ;-------------------------------------------------------------------------------
+; Appends a single byte onto the wstring DI.
+;
+; Takes AL = the byte to copy.
+;-------------------------------------------------------------------------------
+concat_byte_wstring:
+    push di
+
+    ; Increment length header
+    mov cx, [di]
+    inc cx
+    mov [di], cx
+
+    ; Write byte to end of string
+    inc cx          ; CX = old length + 2
+    add di, cx      ; Skip past length header and all old characters
+    mov [di], al
+
+    pop di
+    ret
+
+
+;-------------------------------------------------------------------------------
 ; Copies bytes from SI onto the end of DI.
 ;
 ; Assumes that the bytes following the end of DI are safe to overwrite.

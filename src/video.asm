@@ -17,15 +17,18 @@ section .text
 concat_resident_video_code_wstring:
     push si
 
+    ; Append header: initialize SI = resident data
     mov si, _initialize_si_code
     call concat_wstring
 
+    ; Append palette-setting code
     cmp [parsed_bundle.palette], word 0
     je .skip_palette
     mov si, _palette_code
     call concat_wstring
     .skip_palette:
 
+    ; Append font-setting code
     cmp [parsed_bundle.font], word 0
     je .skip_font
     mov si, _font_code
@@ -41,18 +44,21 @@ concat_resident_video_code_wstring:
 concat_video_data_wstring:
     push si
 
+    ; Copy palette data
     mov si, [parsed_bundle.palette]
     cmp si, 0
     je .skip_palette
     call concat_wstring
     .skip_palette:
 
+    ; Copy font data
     mov si, [parsed_bundle.font]
     cmp si, 0
     je .skip_font
-    ; TODO: Copy font size byte
-    ; TODO: Fix these to copy from bytes instead of from wstring. Library fn?
-    call concat_wstring
+    mov ax, [si]                ; AX = number of bytes in font
+    mov al, ah
+    call concat_byte_wstring    ; Concat AL = pixel height of font
+    call concat_wstring         ; Concat SI = actual font data
     .skip_font:
 
     pop si
