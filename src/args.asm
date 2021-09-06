@@ -107,7 +107,6 @@ string_args:
 ; Subroutines
 ;------------------------------
 section .text
-%include "debug.asm"
 
 ;-------------------------------------------------------------------------------
 ; Read command line flags and initialize status variables accordingly.

@@ -85,7 +85,7 @@ parse_bundled_data:
 
         ; Load palette data
         .palette_key:
-        cmp [si], 3*16                  ; Make sure we have exactly 16 colors
+        cmp [si], word 3*16             ; Make sure we have exactly 16 colors
         jne .failure
         mov [parsed_bundle.palette], dx
         jmp .continue
@@ -189,7 +189,7 @@ try_strip_key_prefix:
     pop di
     mov cl, [di]
     inc cx              ; CX = length of "KEY="
-    mox ax, [si]
+    mov ax, [si]
     sub ax, cx          ; AX = new length of wstring
     add si, cx          ; Mutate SI to remove prefix and
     mov [si], ax        ; write new length header

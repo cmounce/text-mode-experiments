@@ -23,14 +23,16 @@ tsr_id:
 ; They only become valid after the resident code has been installed.
 
 ; When processing an interrupt, we reuse the PSP's command-line space as a
-; miniature stack. The last word of the PSP holds the old stack pointer,
-; and the 126 bytes preceding it are our temporary stack space.
+; miniature stack. The last 2 words of the PSP holds the old stack pointer,
+; and the 124 bytes preceding them are our temporary stack space.
 absolute 80h
-resb 126                        ; Stack space
-old_stack_pointer:  resw 1      ; Top of stack will contain old SP
+resb 124                        ; Stack space
+resident_stack_start:
+old_stack_pointer:  resw 1      ; Top of stack will contain old SP/SS
+old_stack_segment:  resw 1
 
 ; Contains the TSR ID to identify this chunk of memory as our TSR
-resident_nametag:   resb tsr_id_length
+resident_nametag:   resb tsr_id.length
 
 old_int_10h:        ; previous video interrupt
     .offset:        resw 1
@@ -50,6 +52,7 @@ resident_data:
 ;===============================================================================
 ; Non-resident code
 ;-------------------------------------------------------------------------------
+section .text
 
 ;-------------------------------------------------------------------------------
 ; Checks to see if our TSR is already resident in memory.
@@ -73,7 +76,8 @@ scan_multiplex_ids:
         ; Scan current multiplex ID
         mov ah, bh
         call _check_single_multiplex_id
-        cmp es, 0           ; Stop scanning once we find our TSR
+        mov dx, es          ; TODO: _check_single_multiplex_id to return DX?
+        cmp dx, 0           ; Stop scanning once we find our TSR
         jne .found
 
         ; If this is the first unoccupied ID we've found, take note of it
@@ -146,11 +150,12 @@ _check_single_multiplex_id:
     ; We found our TSR!
     ; No need to set any return registers, because our TSR should have
     ; already set AL = non-zero and ES = resident segment.
-    jmp ret
+    jmp .ret
 
     .unoccupied:
     .not_us:
-    xor es, es      ; ES = 0 indicates that our TSR is not installed here
+    xor cx, cx      ; Set ES = 0 to indicate our TSR is not installed here
+    mov es, cx
 
     .ret:
     pop si
@@ -167,41 +172,17 @@ _check_single_multiplex_id:
 ; AL = Available multiplex ID to install into (found via scan_multiplex_ids)
 ;-------------------------------------------------------------------------------
 install_and_terminate:
-    ; WHAT DOES THIS FUNCTION DO? It's been a long time and I forgot.
-    ; - Set up buffer = empty wstring list
-    ; - Append stuff to list:
-    ;   - TSR ID string
-    ;   - Video handler (prefix, video, suffix)
-    ;   - Multiplex handler
-    ;   - Data blob
-    ;   - Relocatable installer
-    ; - Jump to installer
-
-    ; Question: what to do with the data blob?
-    ;   - Video code generates it
-    ;   - Video code needs to know its offset
-    ;   - Feeling: install code shouldn't know anything about it
-    ; Options:
-    ;   A. Keep separate video-code and video-data blobs, and installer knows
-    ;   B. Bundle video code/data together (and make it truly relocatable)
-    ; Size cost of current approach ("resw 1" + "mov dx, [addr]")
-    ;   - resw: 2 bytes
-    ;   - mov: 4 bytes
-    ; Latest position:
-    ;   - Hard-code the address of the data blob: first thing after globals
-    ;   - When video.asm builds the video blob, it appends "mov si, (addr)"
-    ;   - Install routine still knows there's separate code/data blobs
-    ;   - video.asm can still do previews: just append "mov si, (other addr)"
-
+    ; Save AL = multiplex ID so we can use it later
+    push ax
 
     ; Initialize buffer to empty string
     mov di, global_buffer
-    mov [di], 0
+    mov [di], word 0
 
     ; TODO: Does this belong in string.asm? What should it be called?
-    %macro append_empty_wstring
+    %macro append_empty_wstring 0
         next_wstring di
-        mov [di], 0
+        mov [di], word 0
     %endmacro
 
     ; String 1: TSR ID hash
@@ -209,98 +190,107 @@ install_and_terminate:
     call concat_wstring
     append_empty_wstring
 
-
-
     ; String 2: video data
-    ; TODO
+    call concat_video_data_wstring
+    append_empty_wstring
 
     ; String 3: int 10h handler
-    ; TODO: prefix
-    call concat_resident_video_code_wstring
-    ; TODO: suffix
+    mov si, int_10h_handler_prefix          ; Handler consists of prefix...
+    call concat_wstring
+    call concat_resident_video_code_wstring ; video code...
+    mov si, int_10h_handler_suffix          ; and suffix, all in one wstring.
+    call concat_wstring
+    append_empty_wstring
 
     ; String 4: int 2fh handler
-    ; TODO
+    mov si, int_2fh_handler
+    call concat_wstring
+    append_empty_wstring
+
+    ; Copy installer to global buffer.
+    ; This is to guarantee that the installation code will be located in
+    ; memory at a location where it won't accidentally overwrite itself.
+    mov si, finalize_install
+    call concat_wstring
+
+    ; Call installer
+    pop ax              ; AL = TSR multiplex ID
+    lea bx, [si + 2]    ; BX = start of install code
+    jmp bx
 
 
-    ; Allocate BX = buffer on stack
-    BUFFER_SIZE equ 20*1024
-    sub sp, BUFFER_SIZE
-    mov bx, sp
+;-------------------------------------------------------------------------------
+; Install code: Overwrite in-memory code with buffer and terminate
+;
+; AL = TSR ID to use for multiplex identification
+; global_buffer = list of 4 wstrings:
+;   0. TSR ID hash value
+;   1. Data blob (palette/font)
+;   2. Code for video interrupt handler
+;   3. Code for TSR multiplex handler
+;-------------------------------------------------------------------------------
+finalize_install:
+begin_wstring
+    ; Save TSR handler ID in resident global
+    mov [multiplex_id], ax
 
-    ; Save destination multiplex ID
-    push ax
+    ; Copy TSR ID hash value to resident header
+    mov si, global_buffer
+    mov di, resident_nametag
+    call .transfer_wstring
 
-    ; Initialize DI to point to an empty Pascal string
-    mov di, bx
-    mov word [di], 0
+    ; Copy data blob
+    mov di, resident_data
+    call .transfer_wstring
 
-    ; String 0: TSR ID hash
-    %macro append_fragment 1
-        mov si, %1
-        mov cx, %1.end_of_contents - %1
-        call .append_to_pstring
-    %endmacro
-    append_fragment tsr_id_hash_value
-    call .new_pstring
+    ; Copy interrupt handlers and save their addresses
+    push di
+    call .transfer_wstring  ; Video interrupt handler
+    push di
+    call .transfer_wstring  ; TSR multiplex handler
 
-    ; String 1: video interrupt handler
-    append_fragment int_10h_handler_prefix
-    append_fragment find_resident_palette
-    append_fragment set_palette
-    append_fragment set_font
-    append_fragment int_10h_handler_suffix
-    call .new_pstring
+    cli     ; Install interrupts...
 
-    ; String 2: TSR multiplex handler
-    append_fragment int_2fh_handler
-    call .new_pstring
+    ; Patch TSR multiplex interrupt
+    mov     ax, 352Fh                   ; Get old 2Fh vector
+    int     21h
+    mov     [old_int_2fh.offset], bx    ; Save old vector
+    mov     [old_int_2fh.segment], es
+    mov     ax, 252Fh                   ; Set new 2Fh vector
+    pop     dx
+    int     21h
 
-    ; String 3: data blob
-    mov si, [parsed_bundle.palette] ; We can't use append_fragment here because
-    mov cx, 3*16                    ; the palette comes from the bundle, and it
-    call .append_to_pstring         ; doesn't have labels marking start/end
+    ; Patch video interrupt
+    mov     ax, 3510h                   ; Get old 10h vector
+    int     21h
+    mov     [old_int_10h.offset], bx    ; Save old vector
+    mov     [old_int_10h.segment], es
+    mov     ax, 2510h                   ; Set new 10h vector
+    pop     dx
+    int     21h
 
-    mov si, parsed_bundle.font_height   ; Likewise for font data.
-    mov cx, 1                           ; We append the font height (1 byte)
-    call .append_to_pstring             ; before appending the glyph data.
-    mov si, [parsed_bundle.font]
-    mov ch, [parsed_bundle.font_height]
-    xor cl, cl
-    call .append_to_pstring
-    call .new_pstring
+    sti     ; Interrupts installed.
 
-    ; String 4: TSR installation code
-    append_fragment finalize_install
+    ; Free environment block before exiting
+    mov ah, 49h
+    mov es, [2ch]   ; Environment segment from PSP
+    int 21h
 
-    ; Jump to installation code
-    mov si, bx          ; SI = start of buffer containing strings
-    lea bx, [di + 2]    ; BX = contents of TSR installation string
-    pop ax              ; AL = multiplex ID to use
-    mov ah, 2Fh         ;
-    jmp bx              ; Jump to finalize_install
+    ; Terminate and stay resident
+    mov ax, 3100h   ; TSR, return code 0
+    mov dx, di      ; DX = number of bytes that should remain resident
+    add dx, 16 - 1  ; Make sure division by 16 gets rounded up
+    shr dx, 4       ; DX = number of paragraphs
+    int 21h
 
-    ; Helper: Append SI:CX to Pascal string pointed to by DI
-    ; Sets CX = 0 but otherwise does not clobber any registers
-    .append_to_pstring:
-        push bx
-        mov bx, di          ; BX = pointer to string header
-        add di, 2           ; Skip past string header
-        add di, [bx]        ; Skip past string contents
-        add [bx], cx        ; Update length of string
-        rep movsb           ; Actually append data
-        mov di, bx          ; Restore DI = pointer to string header
-        pop bx
+    ; Helper: Given SI = wstring, copy its raw contents to DI.
+    ; Advances SI to next wstring in list, DI to next location to write to.
+    .transfer_wstring:
+        mov cx, [si]
+        add si, 2
+        rep movsb
         ret
-
-    ; Helper: Assuming DI points to an existing Pascal string, create
-    ; an empty string right after it and set DI to point to it.
-    .new_pstring:
-        add di, [di]        ; Skip over string data
-        add di, 2           ; and header,
-        mov [di], word 0    ; and set new string's length = 0
-        ret
-
+end_wstring
 
 
 ;===============================================================================
@@ -308,8 +298,62 @@ install_and_terminate:
 ;-------------------------------------------------------------------------------
 section .text
 
-; Plan for organization
-; - Non-resident code goes in install.asm
-; - Interrupt handlers *also* go in install.asm (but not video code)
-; - video.asm contains functions for appending relocatable code to buffer
-; - Installer (in install.asm) wraps video code with interrupt handlers
+;-------------------------------------------------------------------------------
+; Code fragments for int 10h (video) handler
+;-------------------------------------------------------------------------------
+int_10h_handler_prefix:
+begin_wstring
+    ; Make sure that this call is changing the video mode
+    cmp ah, 0
+    je .set_video_mode
+    jmp far [cs:old_int_10h]    ; It isn't; defer to the old int 10h handler
+    .set_video_mode:
+
+    ; Switch to our own stack, so we don't depend on the caller's
+    mov [cs:old_stack_pointer], sp  ; Save old SS:SP
+    mov [cs:old_stack_segment], ss
+    mov sp, cs                      ; New SS:SP = CS:resident_stack_start
+    mov ss, sp
+    mov sp, resident_stack_start
+
+    ; Call the old handler as if it was a regular subroutine
+    pushf
+    call far [cs:old_int_10h]
+
+    ; Prepare registers for running resident code
+    pusha           ; Save clobber-able registers returned from old handler
+    push ds         ; Set DS = CS
+    mov ax, cs
+    mov ds, ax
+end_wstring
+    ; Video code goes here...
+int_10h_handler_suffix:
+begin_wstring
+    pop ds                          ; Restore registers, including whatever the
+    popa                            ; old int 10h handler returned.
+    mov sp, [cs:old_stack_pointer]  ; Restore stack.
+    mov ss, [cs:old_stack_segment]
+    iret
+end_wstring
+
+;-------------------------------------------------------------------------------
+; TSR multiplex handler (int 2Fh)
+;
+; Returns the resident code segment in ES and the TSR nametag in ES:DI.
+;-------------------------------------------------------------------------------
+int_2fh_handler:
+begin_wstring
+    ; Make sure this call is for us
+    cmp ah, [cs:multiplex_id]
+    je .match
+    jmp far [cs:old_int_2fh]
+    .match:
+
+    ; Identify ourselves
+    mov al, 0ffh        ; Indicate installed status
+    mov di, cs          ; Set ES:DI = CS:resident_nametag
+    mov es, di
+    mov di, resident_nametag
+    ; TODO: we could save a couple bytes by only setting ES
+    iret
+end_wstring

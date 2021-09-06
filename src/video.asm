@@ -6,6 +6,10 @@
 ;-------------------------------------------------------------------------------
 section .text
 
+preview_mode:
+    ; TODO: Implement preview by executing data in global_buffer
+    ret
+
 ;-------------------------------------------------------------------------------
 ; Append resident font/palette code to the wstring in DI.
 ;

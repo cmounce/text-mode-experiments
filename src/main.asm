@@ -23,6 +23,7 @@ jmp main
 %include 'args.asm'
 %include 'bundle.asm'
 %include 'debug.asm'
+%include 'install.asm'
 %include 'print.asm'
 %include 'tsr.asm'
 %include 'video.asm'
@@ -54,8 +55,7 @@ main:
     jmp .exit
 
     .preview:
-    mov dx, [parsed_bundle.palette]
-    call set_palette
+    call preview_mode
     jmp .exit
 
     .install:
