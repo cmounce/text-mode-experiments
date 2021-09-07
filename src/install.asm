@@ -215,7 +215,7 @@ install_and_terminate:
 
     ; Call installer
     pop ax              ; AL = TSR multiplex ID
-    lea bx, [si + 2]    ; BX = start of install code
+    lea bx, [di + 2]    ; BX = start of install code
     jmp bx
 
 

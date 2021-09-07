@@ -77,17 +77,17 @@ parse_bundled_data:
         ; Check against each of the possible keys
         mov di, bundle_keys.palette ; PALETTE
         call try_strip_key_prefix
-        jne .palette_key
+        je .palette_key
         mov di, bundle_keys.font    ; FONT
         call try_strip_key_prefix
-        jne .font_key
+        je .font_key
         jmp .continue               ; Unrecognized key: skip it.
 
         ; Load palette data
         .palette_key:
         cmp [si], word 3*16             ; Make sure we have exactly 16 colors
         jne .failure
-        mov [parsed_bundle.palette], dx
+        mov [parsed_bundle.palette], si
         jmp .continue
 
         ; Load font data
@@ -162,8 +162,8 @@ validate_bundle_structure:
 ;
 ; SI = wstring of a key-value pair, e.g., "FOO=123"
 ; DI = bstring of a key to compare against, e.g., "FOO"
-; If keys match, returns ZF = 0 and mutated string in SI.
-; If they don't, returns ZF = 1 and leaves SI alone.
+; If keys match, returns ZF = 1 and mutated string in SI.
+; If they don't, returns ZF = 0 and leaves SI alone.
 ;-------------------------------------------------------------------------------
 try_strip_key_prefix:
     push di

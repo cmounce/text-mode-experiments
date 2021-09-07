@@ -7,8 +7,35 @@
 section .text
 
 preview_mode:
-    ; TODO: Implement preview by executing data in global_buffer
+    push di
+    push si
+
+    ; Clear global_buffer
+    mov di, global_buffer
+    mov [di], word 0
+
+    ; Write data and code to global_buffer
+    call concat_video_data_wstring          ; Write data
+    next_wstring di                         ; New string
+    mov [di], word 0
+    call _concat_video_code_wstring         ; Write code
+    mov si, .ret_code                       ; Write ret to end of code
+    call concat_wstring
+
+    ; Call into the code we just wrote
+    mov si, global_buffer + 2   ; SI = contents of data wstring
+    add di, 2                   ; DI = contents of code wstring
+    call di
+
+    pop si
+    pop di
     ret
+
+    ; Helper shim to allow us to call video code as subroutine
+    .ret_code:
+    begin_wstring
+        ret
+    end_wstring
 
 ;-------------------------------------------------------------------------------
 ; Append resident font/palette code to the wstring in DI.
@@ -24,6 +51,21 @@ concat_resident_video_code_wstring:
     ; Append header: initialize SI = resident data
     mov si, _initialize_si_code
     call concat_wstring
+
+    ; Append main video code
+    call _concat_video_code_wstring
+
+    pop si
+    ret
+
+
+;-------------------------------------------------------------------------------
+; Append video code to the wstring in DI.
+;
+; The generated code will look for font/palette data in the SI register.
+;-------------------------------------------------------------------------------
+_concat_video_code_wstring:
+    push si
 
     ; Append palette-setting code
     cmp [parsed_bundle.palette], word 0
@@ -41,6 +83,7 @@ concat_resident_video_code_wstring:
 
     pop si
     ret
+
 
 ;-------------------------------------------------------------------------------
 ; Append resident font/palette data to the wstring in DI.
