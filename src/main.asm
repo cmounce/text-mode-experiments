@@ -61,6 +61,9 @@ main:
     call scan_multiplex_ids
     cmp al, 0
     je .install_fail
+    push ax                     ; Save multiplex ID
+    call preview_mode
+    pop ax
     call install_and_terminate
     .install_fail:
     inspect "install failed:", al, cl, dx
@@ -73,6 +76,7 @@ main:
     call uninstall_tsr
     cmp ax, 0
     je .uninstall_failed
+    call reset_video
     jmp .exit
     .uninstall_not_found:
     println_literal "TSR not in memory"
