@@ -25,7 +25,6 @@ jmp main
 %include 'debug.asm'
 %include 'install.asm'
 %include 'print.asm'
-%include 'tsr.asm'
 %include 'video.asm'
 
 main:
