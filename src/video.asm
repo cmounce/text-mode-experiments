@@ -81,6 +81,21 @@ _concat_video_code_wstring:
     call concat_wstring
     .skip_font:
 
+    ; Append blink-vs-intensity code
+    cmp [parsed_bundle.blink], word 0
+    je .skip_blink
+    mov si, [parsed_bundle.blink]   ; Get boolean value (0 = false) and set
+    cmp [si + 2], byte 0            ; SI to one of two different code blocks
+    je .blink_false
+    ;blink_true                     ; SI = code to enable blinking
+    mov si, _blink_on_code
+    jmp .finish_blink
+    .blink_false:                   ; SI = code to disable blinking
+    mov si, _blink_off_code
+    .finish_blink:                  ; Add SI = appropriate code to result
+    call concat_wstring
+    .skip_blink:
+
     pop si
     ret
 
@@ -181,6 +196,8 @@ end_wstring
 ;-------------------------------------------------------------------------------
 _font_code:
 begin_wstring
+    ; TODO: Save several bytes by consolidating most of the register-saving
+    ; code into a prefix/suffix shared by _palette_code, _font_code, etc.
     push bp
     push bx
     push es
@@ -205,4 +222,30 @@ begin_wstring
     pop es
     pop bx
     pop bp
+end_wstring
+
+
+;-------------------------------------------------------------------------------
+; Enable blinking colors
+;-------------------------------------------------------------------------------
+_blink_on_code:
+begin_wstring
+    push bx
+    mov ax, 1003h   ; Set blink/intensity
+    mov bx, 1       ; Blink = enabled
+    int 10h
+    pop bx
+end_wstring
+
+
+;-------------------------------------------------------------------------------
+; Disable blinking colors/enable high intensity
+;-------------------------------------------------------------------------------
+_blink_off_code:
+begin_wstring
+    push bx
+    mov ax, 1003h   ; Set blink/intensity
+    xor bx, bx      ; Blink = disabled
+    int 10h
+    pop bx
 end_wstring

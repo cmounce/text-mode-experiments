@@ -6,14 +6,16 @@
 ;-------------------------------------------------------------------------------
 section .data
 
-%define DATA_HEADER "DATA:"
+%define DATA_HEADER " START OF DATA:"
 %define PALETTE_KEY "PALETTE"
 %define FONT_KEY "FONT"
+%define BLINK_KEY "BLINK"
 
 ; Define a list of all the valid keys
 bundle_keys:
     .palette:   db_bstring PALETTE_KEY
     .font:      db_bstring FONT_KEY
+    .blink:     db_bstring BLINK_KEY
     db 0
 
 
@@ -36,6 +38,10 @@ dw 5+(14*256)
 db FONT_KEY, "="
 incbin "../goodies/fonts/fixed.f14"
 
+begin_wstring
+    db BLINK_KEY, "=", 0
+end_wstring
+
 ; Terminate the data bundle
 dw 0
 
@@ -47,6 +53,7 @@ section .bss
 parsed_bundle:
     .palette:       resw 1
     .font:          resw 1
+    .blink:         resw 1
 
 
 ;===============================================================================
@@ -75,12 +82,16 @@ parse_bundled_data:
         je .break
 
         ; Check against each of the possible keys
+        ; TODO: Maybe a separate parse loop that sets AX = bundle_keys.foo?
         mov di, bundle_keys.palette ; PALETTE
         call try_strip_key_prefix
         je .palette_key
         mov di, bundle_keys.font    ; FONT
         call try_strip_key_prefix
         je .font_key
+        mov di, bundle_keys.blink   ; BLINK
+        call try_strip_key_prefix
+        je .blink_key
         jmp .continue               ; Unrecognized key: skip it.
 
         ; Load palette data
@@ -100,6 +111,13 @@ parse_bundled_data:
         cmp ch, 32
         ja .failure
         mov [parsed_bundle.font], si
+        jmp .continue
+
+        ; Load blink boolean
+        .blink_key:
+        cmp [si], word 1        ; Make sure our boolean is exactly 1 byte
+        jne .failure
+        mov [parsed_bundle.blink], si
 
         .continue:
         next_wstring si ; Advance to the next key-value pair
@@ -196,8 +214,9 @@ try_strip_key_prefix:
     xor ax, ax          ; Set ZF=1 (keys matched)
     ret
 
-    ; All jumps here should leave ZF=0 (keys didn't match)
+    ; Keys didn't match: return ZF=0
     .no_match:
     pop si
     pop di
+    cmp si, di          ; Set ZF=0 (inputs should never match)
     ret

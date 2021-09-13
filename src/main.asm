@@ -1,5 +1,6 @@
 ;; ZZT All-Purpose TSR (rewrite)
 org 100h                ; Adjust addresses for DOS .COM file
+cpu 286
 
 section .text                           ; Non-resident code (parameter parsing, etc)
 section .data   follows=.text           ; Non-resident data (help text, etc)
