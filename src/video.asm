@@ -1,4 +1,5 @@
 ;; Routines for setting font, palette, etc.
+%include 'macros.asm'
 %include 'string.asm'
 
 ;===============================================================================
@@ -69,32 +70,31 @@ _concat_video_code_wstring:
 
     ; Append palette-setting code
     cmp [parsed_bundle.palette], word 0
-    je .skip_palette
-    mov si, _palette_code
-    call concat_wstring
-    .skip_palette:
+    begin_if ne
+        mov si, _palette_code
+        call concat_wstring
+    end_if
 
     ; Append font-setting code
     cmp [parsed_bundle.font], word 0
-    je .skip_font
-    mov si, _font_code
-    call concat_wstring
-    .skip_font:
+    begin_if ne
+        mov si, _font_code
+        call concat_wstring
+    end_if
 
     ; Append blink-vs-intensity code
     cmp [parsed_bundle.blink], word 0
-    je .skip_blink
-    mov si, [parsed_bundle.blink]   ; Get boolean value (0 = false) and set
-    cmp [si + 2], byte 0            ; SI to one of two different code blocks
-    je .blink_false
-    ;blink_true                     ; SI = code to enable blinking
-    mov si, _blink_on_code
-    jmp .finish_blink
-    .blink_false:                   ; SI = code to disable blinking
-    mov si, _blink_off_code
-    .finish_blink:                  ; Add SI = appropriate code to result
-    call concat_wstring
-    .skip_blink:
+    begin_if ne
+        mov si, [parsed_bundle.blink]   ; Get blink string and interpret its
+        cmp [si + 2], byte 0            ; first byte as a boolean (0 = false)
+        begin_if e
+            mov si, _blink_off_code     ; SI = code to disable blinking
+        else
+            mov si, _blink_on_code      ; SI = code to enable blinking
+        end_if
+
+        call concat_wstring             ; Append the appropriate code to result
+    end_if
 
     pop si
     ret
