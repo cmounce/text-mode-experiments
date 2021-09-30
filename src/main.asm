@@ -30,6 +30,8 @@ jmp main
 
 main:
     call init_bss
+
+    ; Parse/validate the data bundle at the end of the .COM file
     call parse_bundled_data
     cmp ax, 1
     je .bundle_ok
@@ -37,58 +39,47 @@ main:
     jmp .exit
     .bundle_ok:
 
+    ; Parse/validate our command-line arguments
     call parse_command_line
-    print_literal "Subcommand: "
-    mov bx, [subcommand_arg]
-    call print_bstring
-    print_literal `\r\n`
 
+    ; Switch based on the parsed subcommand
     mov ax, [subcommand_arg]
     cmp ax, subcommands.preview
-    je .preview
+    begin_if e
+        call preview_mode
+    else
     cmp ax, subcommands.install
-    je .install
+    if e
+        call scan_multiplex_ids
+        cmp al, 0
+        je .install_fail
+        push ax                     ; Save multiplex ID
+        call preview_mode
+        pop ax
+        call install_and_terminate
+        .install_fail:
+        inspect "install failed:", al, cl, dx
+    else
     cmp ax, subcommands.uninstall
-    je .uninstall
+    if e
+        call scan_multiplex_ids
+        cmp dx, 0
+        je .uninstall_not_found
+        call uninstall_tsr
+        cmp ax, 0
+        je .uninstall_failed
+        call reset_video
+        jmp .exit
+        .uninstall_not_found:
+        println_literal "TSR not in memory"
+        jmp .exit
+        .uninstall_failed:
+        println_literal "uninstall failed"
+    else
     cmp ax, subcommands.reset
-    je .reset
-    jmp .exit
-
-    .preview:
-    call preview_mode
-    jmp .exit
-
-    .install:
-    call scan_multiplex_ids
-    cmp al, 0
-    je .install_fail
-    push ax                     ; Save multiplex ID
-    call preview_mode
-    pop ax
-    call install_and_terminate
-    .install_fail:
-    inspect "install failed:", al, cl, dx
-    jmp .exit
-
-    .uninstall:
-    call scan_multiplex_ids
-    cmp dx, 0
-    je .uninstall_not_found
-    call uninstall_tsr
-    cmp ax, 0
-    je .uninstall_failed
-    call reset_video
-    jmp .exit
-    .uninstall_not_found:
-    println_literal "TSR not in memory"
-    jmp .exit
-    .uninstall_failed:
-    println_literal "uninstall failed"
-    jmp .exit
-
-    .reset:
-    call reset_video
-    jmp .exit
+    if e
+        call reset_video
+    end_if
 
     .exit:
     mov ah, 0

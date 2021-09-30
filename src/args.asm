@@ -123,6 +123,7 @@ parse_command_line:
     call try_parse_subcommand
 
     ; TODO: Parsing for options
+    ; TODO: Validate args and return a bool
 
     pop si
     ret
