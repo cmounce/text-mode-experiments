@@ -36,6 +36,14 @@
     db %%n, %1
 %endmacro
 
+; Like db, but adds a two-byte length prefix before the given string.
+; Example: 'db_wstring "ABC"' is equivalent to 'db 3, 0, "ABC"'
+%macro db_wstring 1
+    %strlen %%n %1
+    dw %%n
+    db %1
+%endmacro
+
 ; Advance a register to point to the next bstring in a list.
 ; Usage: next_bstring si
 ; Does not stop at end of list; caller is responsible for checking [reg] == 0.

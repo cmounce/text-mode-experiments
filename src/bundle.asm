@@ -13,9 +13,9 @@ section .data
 
 ; Define a list of all the valid keys
 bundle_keys:
-    .palette:   db_bstring PALETTE_KEY
-    .font:      db_bstring FONT_KEY
-    .blink:     db_bstring BLINK_KEY
+    .palette:   db_wstring PALETTE_KEY
+    .font:      db_wstring FONT_KEY
+    .blink:     db_wstring BLINK_KEY
     db 0
 
 
@@ -179,24 +179,23 @@ validate_bundle_structure:
 ; Removes "KEY=" from a key-value string, but only if it matches the given key.
 ;
 ; SI = wstring of a key-value pair, e.g., "FOO=123"
-; DI = bstring of a key to compare against, e.g., "FOO"
+; DI = wstring of a key to compare against, e.g., "FOO"
 ; If keys match, returns ZF = 1 and mutated string in SI.
 ; If they don't, returns ZF = 0 and leaves SI alone.
 ;-------------------------------------------------------------------------------
 try_strip_key_prefix:
     push di
     push si
-    xor cx, cx
 
     ; Get lengths of the two input strings
     mov ax, [si]        ; AX = length of key-value pair
-    mov cl, [di]        ; CX = length of key to compare with
+    mov cx, [di]        ; CX = length of key to compare with
     cmp ax, cx
     jbe .no_match       ; Key-value pair is too short to contain key + '='
 
     ; Verify that key-value pair starts with our key
     add si, 2           ; Skip past wstring and
-    inc di              ; bstring length headers
+    add di, 2           ; wstring length headers
     repe cmpsb
     jne .no_match       ; Keys don't match
     cmp byte [si], '='
@@ -205,8 +204,8 @@ try_strip_key_prefix:
     ; Keys match: remove key prefix from the start of the wstring
     pop si              ; Restore old pointers
     pop di
-    mov cl, [di]
-    inc cx              ; CX = length of "KEY="
+    mov cx, [di]
+    inc cx              ; CX = length of key + '='
     mov ax, [si]
     sub ax, cx          ; AX = new length of wstring
     add si, cx          ; Mutate SI to remove prefix and
