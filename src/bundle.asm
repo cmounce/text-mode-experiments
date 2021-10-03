@@ -92,7 +92,7 @@ parse_bundled_data:
         mov di, bundle_keys.blink   ; BLINK
         call try_strip_key_prefix
         je .blink_key
-        jmp .continue               ; Unrecognized key: skip it.
+        jmp .failure                ; Unrecognized key
 
         ; Load palette data
         .palette_key:
