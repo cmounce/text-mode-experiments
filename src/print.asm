@@ -11,15 +11,15 @@
 ; Helper for printing a string literal to stdout.
 ; This copies the string literal to initialized memory; if the same string is
 ; used multiple times, it makes more sense to declare it centrally and call
-; print_bstring directly instead.
+; print_wstring directly instead.
 %macro print_literal 1
     section .data
-    %%bstr: db_bstring %1
+    %%str: db_wstring %1
 
     section .text
     push bx
-    mov bx, %%bstr
-    call print_bstring
+    mov bx, %%str
+    call print_wstring
     pop bx
 %endmacro
 
@@ -36,18 +36,18 @@
 section .text
 
 ;-------------------------------------------------------------------------------
-; Print bstring in BX to stdout.
+; Print wstring in BX to stdout.
 ;-------------------------------------------------------------------------------
-print_bstring:
+print_wstring:
     push bx
 
-    xor cx, cx          ; Get string length
-    mov cl, [bx]
+    mov cx, [bx]        ; CX = string length
+    add bx, 2           ; BX = string contents
+    mov ax, 0200h       ; Prep for int 21h: write single character to stdout
     .loop:
-        inc bx          ; Get next character
-        mov dl, [bx]
-        mov ax, 0200h   ; Write single character to stdout
-        int 21h
+        mov dl, [bx]    ; DL = current character
+        int 21h         ; Print DL
+        inc bx          ; Advance to next character
         loop .loop
 
     pop bx
