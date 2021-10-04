@@ -1,4 +1,5 @@
 ;; Code for parsing command-line arguments
+%include 'macros.asm'
 %include 'string.asm'
 
 ;==============================================================================
@@ -6,8 +7,7 @@
 ;------------------------------------------------------------------------------
 
 ; The command-line string in the PSP.
-; This is initially a single bstring at program start, but
-; tokenize_args_in_place converts it to a list of bstrings.
+; TODO: Rename to something more accurate.
 args_list           equ 80h
 
 
@@ -22,7 +22,7 @@ section .data
 %macro db_subcommand 1
     %deftok %%t %1
     .%[%%t]:
-    db_bstring %1
+    db_wstring %1
 %endmacro
 subcommands:
     ; Each subcommand begins with a different letter, in order to allow the
@@ -33,53 +33,7 @@ subcommands:
     db_subcommand "preview"
     db_subcommand "reset"
     db_subcommand "uninstall"
-    db 0    ; end of list
-
-
-; Helper for simultaneously declaring a list of variable-length bstrings in
-; initialized memory with correspondingly-labeled array elements in BSS.
-; This ensures that the two collections are the same length and the exact same
-; order, allowing the arg parser to iterate over both in lockstep.
-%macro db_option 4
-    %define %%array %1
-    %define %%size  %2
-    %define %%label %3
-    %define %%str   %4
-
-    %ifndef %[%%array]_BYTES
-        %assign %[%%array]_BYTES 0
-    %endif
-    .%[%%label]:            db_bstring %%str
-    %[%%array].%[%%label]   equ %%array + %[%%array]_BYTES
-    %assign %[%%array]_BYTES %[%%array]_BYTES + %%size
-%endmacro
-
-
-; Define a list of all possible boolean flags, along with an array of
-; booleans in BSS so we can track which options are enabled.
-%macro db_optbool 2
-    db_option boolean_args, 1, %1, %2
-%endmacro
-boolean_options:
-    db_optbool nine_dot,    "/9"    ; font width = 9 pixels
-    ; TODO: is there any need for disabling Line Graphics mode?
-    db_optbool help,        "/?"    ; help
-    db_optbool intensity,   "/i"    ; high-intensity backgrounds (no blinking)
-    db 0    ; end of list
-
-
-; Define a list of all possible string options, along with an array of
-; bstring pointers in BSS so we can track which options are enabled.
-%macro db_optstr 2
-    db_option string_args, 2, %1, %2
-%endmacro
-string_options:
-    db_optstr font,             "/f"    ; font file
-    db_optstr secondary_font,   "/f2"   ; secondary font file (multi-charset)
-    db_optstr init_memory,      "/m"    ; initialize memory (e.g., /m=0)
-    db_optstr output,           "/o"    ; write to output file
-    db_optstr palette,          "/p"    ; palette file
-    db 0    ; end of list
+    dw 0    ; end of list
 
 
 ;==============================================================================
@@ -87,20 +41,19 @@ string_options:
 ;------------------------------------------------------------------------------
 section .bss
 
-; Pointer to a bstring from the subcommands list, e.g., subcommands.install
+; String list representing the tokenized argument string.
+; How much space do we need? The arg string could be up to 127 bytes long,
+; which means in the worst case we could have 64 one-character tokens (i.e.,
+; every other byte is a delimiter). Each of those tokens would take up 3 bytes
+; (2 byte header, 1 byte content), and the list itself would be terminated by
+; an empty string (2 byte header, 0 bytes content).
+MAX_TOKENS equ (127 + 1)/2
+_arg_tokens:
+    resb (MAX_TOKENS * 3) + 2
+
+; Pointer to a wstring from the subcommands list, e.g., subcommands.install
 subcommand_arg:
     resw 1
-
-; Array of one-byte booleans, corresponding to elements of boolean_options.
-; Each one has a corresponding label, e.g., "/?" will set boolean_args.help.
-boolean_args:
-    resb boolean_args_BYTES
-
-; Array of bstring pointers, corresponding to elements of string_options.
-; As before, each one has a label, e.g., "/f blah" will set string_args.font
-; to point to "blah". If option is not present, the pointer will be 0/null.
-string_args:
-    resb string_args_BYTES
 
 
 ;==============================
@@ -118,8 +71,8 @@ section .text
 parse_command_line:
     push si
 
-    call tokenize_args_in_place
-    mov si, args_list
+    call tokenize_args          ; _arg_tokens = string list of tokens
+    mov si, _arg_tokens         ; SI = first token
     call try_parse_subcommand
 
     ; TODO: Parsing for options
@@ -130,9 +83,9 @@ parse_command_line:
 
 
 ;-------------------------------------------------------------------------------
-; Tries to parse the bstring in SI as a subcommand.
+; Tries to parse the wstring in SI as a subcommand.
 ;
-; If SI is a valid subcommand, advances SI to point to the next bstring.
+; If SI is a valid subcommand, advances SI to point to the next wstring.
 ; Otherwise, SI is left unchanged and subcommands.preview is set as a default.
 ;-------------------------------------------------------------------------------
 try_parse_subcommand:
@@ -141,16 +94,16 @@ try_parse_subcommand:
     ; Loop DI over all possible subcommands, comparing each one to SI
     mov di, subcommands
     .loop:
-        cmp [di], byte 0            ; Break if we run out of subcommands
+        cmp [di], word 0            ; Break if we run out of subcommands
         je .break
 
-        ; TODO: Maybe add an iprefix_bstring function to string.asm?
-        call icmp_bstring           ; If the strings match...
+        ; TODO: Maybe add an iprefix_wstring function to string.asm?
+        call icmp_wstring           ; If the strings match...
         je .finish
         call is_short_subcommand    ; ...or if SI is an abbreviation of DI,
         je .finish                  ; then we've found our subcommand.
 
-        next_bstring di             ; Otherwise, advance DI to the next one.
+        next_wstring di             ; Otherwise, advance DI to the next one.
         jmp .loop
     .break:
 
@@ -165,18 +118,18 @@ try_parse_subcommand:
 
 
 ;-------------------------------------------------------------------------------
-; Returns whether SI is a one-character abbreviation of the bstring in DI.
+; Returns whether SI is a one-character abbreviation of the string in DI.
 ;
 ; Examples: "i" or "I" would match "install", but "x" or "inst" would not.
 ; Returns ZF = 0 if there's a match, nonzero otherwise.
 ;-------------------------------------------------------------------------------
 is_short_subcommand:
-    cmp byte [si], 1            ; Is the input string one character long?
+    cmp word [si], 1            ; Is the input string one character long?
     jne .ret
-    mov al, [si+1]              ; Get the only character of SI
+    mov al, [si+2]              ; Get the only character of SI
     call tolower_accumulator
     mov ah, al
-    mov al, [di+1]              ; Get first character of DI
+    mov al, [di+2]              ; Get first character of DI
     call tolower_accumulator
     cmp ah, al                  ; Do a case-insensitive comparison
     .ret:
@@ -184,9 +137,9 @@ is_short_subcommand:
 
 
 ;-------------------------------------------------------------------------------
-; Convert standard PSP argument string into a list of bstrings, in place.
+; Tokenize the PSP argument string and store the result in _arg_tokens.
 ;-------------------------------------------------------------------------------
-tokenize_args_in_place:
+tokenize_args:
     push bx
     push di
     push si
@@ -194,77 +147,47 @@ tokenize_args_in_place:
     ; Set up all our pointers
     mov si, args_list   ; SI = pointer to copy data from
     inc si              ;   (skipping the length header)
-    mov di, args_list   ; DI = destination for resulting bstring list
+    mov di, _arg_tokens ; DI = destination for resulting string list
     xor bx, bx          ; BX = pointer to last character of PSP string,
     mov bl, [args_list] ;   used for bounds checking
     add bx, args_list
 
-    ; Copy all tokens
-    .loop:
-        call fast_forward_to_token  ; Advance SI to point to next token.
-        cmp ax, 1                   ; If we run out of tokens, break.
-        jne .break
-        call copy_token_to_bstring  ; Otherwise, copy the token to DI.
+    ; Loop over each char in the arg string
+    .forEachChar:
+        ; Make sure SI is still within bounds
+        cmp si, bx
+        ja .break
+
+        lodsb                       ; AL = next character from SI
+        call is_token_separator
+        begin_if ne
+            ; AL is part of a token: append it to the current string in DI.
+            ; Note that lists are terminated by an empty string, so DI should
+            ; always point to a valid string.
+            call concat_byte_wstring
+        else
+            ; AL is not part of a token.
+            ; Does DI point to an in-progress token?
+            cmp word [di], 0
+        if ne
+            ; DI points to an in-progress token, which we need to wrap up.
+            next_wstring di     ; Advance DI past the latest token on the list
+            mov word [di], 0    ; Write empty string/list terminator to DI
+        end_if
+
+        jmp .forEachChar
     .break:
 
-    mov [di], byte 0    ; Terminate list with a zero-length bstring.
+    ; Terminate the list if it isn't terminated already
+    cmp word [di], 0
+    begin_if ne
+        next_wstring di     ; Advance DI past the last token
+        mov word [di], 0    ; Write empty string/list terminator to DI
+    end_if
 
     pop si
     pop di
     pop bx
-    ret
-
-
-;-------------------------------------------------------------------------------
-; Advances SI to point to the start of the next token in the PSP string.
-;
-; For bounds checking, takes BX = last character of PSP string.
-; Returns AX = 1 on success, 0 on end of PSP string.
-;-------------------------------------------------------------------------------
-fast_forward_to_token:
-    .loop:
-        cmp si, bx              ; Make sure we're still in bounds
-        ja .end_of_string
-        lodsb                   ; AL = next character
-        call is_token_separator ; ZF = is this character a separator?
-        je .loop                ;   If so, keep looking.
-
-    mov ax, 1   ; Return success
-    dec si      ; SI = first character of token (undo lodsb's last increment)
-    ret
-
-    .end_of_string:
-    xor ax, ax
-    ret
-
-
-;-------------------------------------------------------------------------------
-; Copy token characters from SI into a bstring at DI.
-;
-; For bounds checking, takes BX = last character of PSP string.
-; Assumes SI already points to the first character of a token.
-; Advances SI to point to the byte immediately following the copied data,
-; and likewise for DI.
-;-------------------------------------------------------------------------------
-copy_token_to_bstring:
-    inc di  ; Leave a byte to write the token's length
-
-    ; Copy token characters
-    xor cx, cx                  ; CX = number of characters copied
-    .loop:
-        cmp si, bx              ; Break if we're out of bounds
-        ja .break
-        lodsb                   ; Read character
-        call is_token_separator ; Break if we hit a token separator
-        jz .break
-        stosb                   ; Write character and increment count
-        inc cx
-        jmp .loop
-    .break:
-
-    sub di, cx          ; Temporarily set DI = pointer to first character
-    mov [di - 1], cl    ; Write length header
-    add di, cx          ; Restore DI
     ret
 
 
@@ -279,7 +202,7 @@ copy_token_to_bstring:
 ;-------------------------------------------------------------------------------
 is_token_separator:
     cmp al, ' ' ; Is it an ASCII control character or a space?
-    jle .true
+    jbe .true
     cmp al, '=' ; Is it a '='?
     ret
     .true:
