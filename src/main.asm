@@ -15,6 +15,12 @@ global_buffer equ section..bss.start + bss_size
 ; - 20K to 60K: BSS; Buffer space for assembling installable
 ; - 60K to 64K: Stack space
 
+; Define some exit codes in rough order of severity
+EXIT_OK         equ 0
+EXIT_BAD_ARGS   equ 1
+EXIT_BAD_BUNDLE equ 2
+EXIT_BAD_CODE   equ 3
+
 ;==============================================================================
 ; Program start
 ;------------------------------------------------------------------------------
@@ -35,8 +41,7 @@ main:
     call parse_bundled_data
     cmp ax, 1
     je .bundle_ok
-    println_literal "bundled data is corrupt"
-    jmp .exit
+    die EXIT_BAD_BUNDLE, "bundled data is corrupt"
     .bundle_ok:
 
     ; Parse/validate our command-line arguments

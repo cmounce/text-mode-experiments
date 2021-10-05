@@ -29,6 +29,19 @@
     print_literal %%str
 %endmacro
 
+; Helper for terminating with an error message.
+; Example: 'die 123, "foo"' prints "foo" to stderr and exits with code 123.
+%macro die 2
+    %strcat %%str %2 `\r\n`
+    section .data
+    %%msg: db_wstring %%str
+
+    section .text
+    mov al, %1
+    mov bx, %%msg
+    call die_wstring
+%endmacro
+
 
 ;==============================================================================
 ; Functions
@@ -36,22 +49,52 @@
 section .text
 
 ;-------------------------------------------------------------------------------
-; Print wstring in BX to stdout.
+; Print wstring in BX to the given handle.
+;
+; AX = handle to write to
 ;-------------------------------------------------------------------------------
-print_wstring:
+fprint_wstring:
     push bx
 
-    mov cx, [bx]        ; CX = string length
-    add bx, 2           ; BX = string contents
-    mov ax, 0200h       ; Prep for int 21h: write single character to stdout
-    .loop:
-        mov dl, [bx]    ; DL = current character
-        int 21h         ; Print DL
-        inc bx          ; Advance to next character
-        loop .loop
+    mov cx, [bx]        ; CX = number of bytes to write
+    lea dx, [bx + 2]    ; DX = data to write
+    mov bx, ax          ; BX = handle to write to
+    mov ah, 40h         ; Write data to handle
+    int 21h
 
     pop bx
     ret
+
+
+;-------------------------------------------------------------------------------
+; Print wstring in BX to stdout.
+;-------------------------------------------------------------------------------
+print_wstring:
+    mov ax, 1
+    jmp fprint_wstring
+
+
+;-------------------------------------------------------------------------------
+; Print wstring in BX to stderr.
+;-------------------------------------------------------------------------------
+eprint_wstring:
+    mov ax, 2
+    jmp fprint_wstring
+
+
+;-------------------------------------------------------------------------------
+; Print an error message to stderr and quit with an error code.
+;
+; AL = Process return code
+; BX = Error message wstring to print
+;-------------------------------------------------------------------------------
+die_wstring:
+    push ax
+    call eprint_wstring
+    pop ax                  ; AL = errorlevel
+    mov ah, 4ch             ; Terminate with return code
+    int 21h
+
 
 ; PRINT_ASM
 %endif
