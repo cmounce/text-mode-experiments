@@ -1,5 +1,6 @@
 ;; Code for parsing command-line arguments
 %include 'macros.asm'
+%include 'print.asm'
 %include 'string.asm'
 
 ;==============================================================================
@@ -24,6 +25,7 @@ section .data
     .%[%%t]:
     db_wstring %1
 %endmacro
+; TODO: Rename to all_subcommands?
 subcommands:
     ; Each subcommand begins with a different letter, in order to allow the
     ; user to make single-character abbreviations (e.g., "foo i" to install).
@@ -71,48 +73,57 @@ section .text
 parse_command_line:
     push si
 
+    ; Set up SI = start of token list
     call tokenize_args          ; _arg_tokens = string list of tokens
     mov si, _arg_tokens         ; SI = first token
-    call try_parse_subcommand
+
+    ; Parse first word as a subcommand, if it exists
+    call _parse_subcommand
+    cmp word [subcommand_arg], 0
+    begin_if e
+        ; No subcommand present: default to subcommand.preview
+        mov word [subcommand_arg], subcommands.preview
+    end_if
+
+    ; Assert that we've parsed everything
+    cmp word [si], 0
+    begin_if ne
+        die EXIT_BAD_ARGS, "Unexpected extra args"
+    end_if
 
     ; TODO: Parsing for options
-    ; TODO: Validate args and return a bool
+    ; TODO: Return a bool for arg validation?
 
     pop si
     ret
 
-
 ;-------------------------------------------------------------------------------
-; Tries to parse the wstring in SI as a subcommand.
+; Tries to consume the token in SI as a subcommand.
 ;
-; If SI is a valid subcommand, advances SI to point to the next wstring.
-; Otherwise, SI is left unchanged and subcommands.preview is set as a default.
+; On success: sets subcommand_arg and consumes the token, advancing SI.
+; On failure: leaves subcommand_arg untouched (should be zero).
 ;-------------------------------------------------------------------------------
-try_parse_subcommand:
+_parse_subcommand:
     push di
 
-    ; Loop DI over all possible subcommands, comparing each one to SI
-    mov di, subcommands
-    .loop:
-        cmp [di], word 0            ; Break if we run out of subcommands
-        je .break
+    mov di, subcommands             ; Loop DI = each possible subcommand
+    .for_each:
+        cmp word [di], 0            ; Break if we run out of subcommands
+        je .not_found
 
-        ; TODO: Maybe add an iprefix_wstring function to string.asm?
-        call icmp_wstring           ; If the strings match...
-        je .finish
-        call is_short_subcommand    ; ...or if SI is an abbreviation of DI,
-        je .finish                  ; then we've found our subcommand.
+        call icmp_wstring           ; If SI == DI, this is a full subcommand.
+        je .found
+        call is_short_subcommand    ; If the first letters of SI and DI match,
+        je .found                   ; this is an abbreviated subcommand.
 
         next_wstring di             ; Otherwise, advance DI to the next one.
-        jmp .loop
-    .break:
+        jmp .for_each
 
-    ; If we make it all the way through the loop without finding a match,
-    ; set "preview" as our default.
-    mov di, subcommands.preview
+    .found:
+    mov [subcommand_arg], di        ; SI is a valid subcommand. Record it and
+    next_wstring si                 ; advance to the next token.
 
-    .finish:
-    mov [subcommand_arg], di
+    .not_found:
     pop di
     ret
 
@@ -153,7 +164,7 @@ tokenize_args:
     add bx, args_list
 
     ; Loop over each char in the arg string
-    .forEachChar:
+    .for_each:
         ; Make sure SI is still within bounds
         cmp si, bx
         ja .break
@@ -175,7 +186,7 @@ tokenize_args:
             mov word [di], 0    ; Write empty string/list terminator to DI
         end_if
 
-        jmp .forEachChar
+        jmp .for_each
     .break:
 
     ; Terminate the list if it isn't terminated already
