@@ -25,7 +25,6 @@ section .data
     .%[%%t]:
     db_wstring %1
 %endmacro
-; TODO: Rename to all_subcommands?
 subcommands:
     ; Each subcommand begins with a different letter, in order to allow the
     ; user to make single-character abbreviations (e.g., "foo i" to install).
@@ -74,7 +73,7 @@ parse_command_line:
     push si
 
     ; Set up SI = start of token list
-    call tokenize_args          ; _arg_tokens = string list of tokens
+    call _tokenize_args         ; _arg_tokens = string list of tokens
     mov si, _arg_tokens         ; SI = first token
 
     ; Parse first word as a subcommand, if it exists
@@ -113,7 +112,7 @@ _parse_subcommand:
 
         call icmp_wstring           ; If SI == DI, this is a full subcommand.
         je .found
-        call is_short_subcommand    ; If the first letters of SI and DI match,
+        call _is_short_subcommand   ; If the first letters of SI and DI match,
         je .found                   ; this is an abbreviated subcommand.
 
         next_wstring di             ; Otherwise, advance DI to the next one.
@@ -134,7 +133,7 @@ _parse_subcommand:
 ; Examples: "i" or "I" would match "install", but "x" or "inst" would not.
 ; Returns ZF = 0 if there's a match, nonzero otherwise.
 ;-------------------------------------------------------------------------------
-is_short_subcommand:
+_is_short_subcommand:
     cmp word [si], 1            ; Is the input string one character long?
     jne .ret
     mov al, [si+2]              ; Get the only character of SI
@@ -150,7 +149,7 @@ is_short_subcommand:
 ;-------------------------------------------------------------------------------
 ; Tokenize the PSP argument string and store the result in _arg_tokens.
 ;-------------------------------------------------------------------------------
-tokenize_args:
+_tokenize_args:
     push bx
     push di
     push si
@@ -170,7 +169,7 @@ tokenize_args:
         ja .break
 
         lodsb                       ; AL = next character from SI
-        call is_token_separator
+        call _is_token_separator
         begin_if ne
             ; AL is part of a token: append it to the current string in DI.
             ; Note that lists are terminated by an empty string, so DI should
@@ -211,7 +210,7 @@ tokenize_args:
 ;
 ; Clobbers no registers!
 ;-------------------------------------------------------------------------------
-is_token_separator:
+_is_token_separator:
     cmp al, ' ' ; Is it an ASCII control character or a space?
     jbe .true
     cmp al, '=' ; Is it a '='?
