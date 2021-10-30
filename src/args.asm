@@ -37,6 +37,11 @@ subcommands:
     dw 0    ; end of list
 
 
+; Define some boolean flags
+_flags:
+    .help:      db_wstring "/?"
+
+
 ;==============================================================================
 ; Parsed data
 ;------------------------------------------------------------------------------
@@ -55,6 +60,10 @@ _arg_tokens:
 ; Pointer to a wstring from the subcommands list, e.g., subcommands.install
 subcommand_arg:
     resw 1
+
+; Array of booleans representing args that are present/absent
+parsed_flags:
+    .help:  resb 1
 
 
 ;==============================
@@ -81,20 +90,28 @@ parse_command_line:
     cmp word [subcommand_arg], 0
     begin_if e
         ; No subcommand present: default to subcommand.preview
+        ; TODO: Support different behavior for "foo /?" vs. "foo preview /?"
         mov word [subcommand_arg], subcommands.preview
     end_if
 
-    ; Assert that we've parsed everything
-    cmp word [si], 0
-    begin_if ne
-        die EXIT_BAD_ARGS, "Unexpected extra args"
-    end_if
+    ; Consume all remaining arguments
+    jmp .loop_condition
+    .loop:
+        call _parse_argument
+        cmp ax, 0
+        begin_if e
+            die EXIT_BAD_ARGS, "Unexpected arg"
+        end_if
 
-    ; TODO: Parsing for options
+        .loop_condition:
+        cmp word [si], 0
+        jne .loop
+
     ; TODO: Return a bool for arg validation?
 
     pop si
     ret
+
 
 ;-------------------------------------------------------------------------------
 ; Tries to consume the token in SI as a subcommand.
@@ -123,6 +140,52 @@ _parse_subcommand:
     next_wstring si                 ; advance to the next token.
 
     .not_found:
+    pop di
+    ret
+
+
+;-------------------------------------------------------------------------------
+; Tries to consume 1-2 tokens from SI as a single argument.
+;
+; 1-token args are boolean flags, e.g., "/?".
+; 2-token args are key-value options, e.g., "/foo=bar" or "/foo bar".
+;-------------------------------------------------------------------------------
+_parse_argument:
+    ; Try to parse SI as a 1-token flag
+    call _parse_flag
+    cmp ax, 0
+    begin_if ne
+        ; Success: return AX = 1
+        ret
+    end_if
+
+    ; TODO: Try to parse SI as a 2-token option
+
+    ; Failure: return AX = 0
+    ret
+
+
+;-------------------------------------------------------------------------------
+; Tries to consume a 1-token boolean flag from SI, e.g., "/?"
+;-------------------------------------------------------------------------------
+_parse_flag:
+    push di
+
+    ; Compare SI against each of the flag strings
+    mov di, _flags.help
+    call icmp_wstring
+    begin_if e
+        mov byte [parsed_flags.help], 1
+    else
+        ; Return failure: flag not recognized
+        xor ax, ax
+        jmp .ret
+    end_if
+
+    ; Consume token and return success
+    next_wstring si
+    mov ax, 1
+    .ret:
     pop di
     ret
 

@@ -24,6 +24,7 @@
 %endmacro
 
 %macro else 0
+    ; TODO: macro "hint_unreachable" that suppressess this jmp
     jmp %$end_if
     %$skip%$num_skip:
     %assign %$num_skip %$num_skip + 1

@@ -47,6 +47,13 @@ main:
     ; Parse/validate our command-line arguments
     call parse_command_line
 
+    ; Test out the help flag
+    cmp byte [parsed_flags.help], 0
+    begin_if ne
+        println_literal "Help not implemented yet"
+        jmp .exit
+    end_if
+
     ; Switch based on the parsed subcommand
     mov ax, [subcommand_arg]
     cmp ax, subcommands.preview
