@@ -42,8 +42,10 @@ old_int_2fh:        ; TSR multiplex interrupt
     .offset:        resw 1
     .segment:       resw 1
 
-; Allocate space to store the TSR's 1-byte numeric ID (assigned at runtime)
-multiplex_id:       resb 1
+; Expected value of AX when multiplex interrupt is called
+multiplex_ax:
+    .function:      resb 1  ; Function code for installation check = 0
+    .id:            resb 1  ; TSR's 1-byte numeric ID (assigned at runtime)
 
 ; End of fixed-location resident globals, start of font/palette data
 resident_data:
@@ -142,8 +144,9 @@ _check_single_multiplex_id:
     mov si, cs                  ; DS:SI = expected string (tsr_id)
     mov ds, si
     mov si, tsr_id.contents
-    mov cx, tsr_id.length
-    mov di, resident_nametag    ; ES:DI = actual string
+    mov es, bx                  ; ES:DI = actual string
+    mov di, resident_nametag
+    mov cx, tsr_id.length       ; CX = number of bytes to compare
     rep cmpsb
     jne .not_us
 
@@ -232,7 +235,8 @@ install_and_terminate:
 finalize_install:
 begin_wstring
     ; Save TSR handler ID in resident global
-    mov [multiplex_id], ax
+    mov [multiplex_ax.id], al
+    mov byte [multiplex_ax.function], 0
 
     ; Copy TSR ID hash value to resident header
     mov si, global_buffer
@@ -401,16 +405,13 @@ end_wstring
 int_2fh_handler:
 begin_wstring
     ; Make sure this call is for us
-    cmp ah, [cs:multiplex_id]
+    cmp ax, [cs:multiplex_ax]
     je .match
     jmp far [cs:old_int_2fh]
     .match:
 
     ; Identify ourselves
     mov al, 0ffh        ; Indicate installed status
-    mov di, cs          ; Set ES:DI = CS:resident_nametag
-    mov es, di
-    mov di, resident_nametag
-    ; TODO: we could save a couple bytes by only setting ES
+    mov bx, cs          ; Return CS so caller can verify CS:resident_nametag
     iret
 end_wstring
