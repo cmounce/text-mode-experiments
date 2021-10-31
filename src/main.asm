@@ -50,7 +50,7 @@ main:
     ; Test out the help flag
     cmp byte [parsed_flags.help], 0
     begin_if ne
-        println_literal "Help not implemented yet"
+        println "Help not implemented yet"
         jmp .exit
     end_if
 
@@ -83,10 +83,10 @@ main:
         call reset_video
         jmp .exit
         .uninstall_not_found:
-        println_literal "TSR not in memory"
+        println "TSR not in memory"
         jmp .exit
         .uninstall_failed:
-        println_literal "uninstall failed"
+        println "uninstall failed"
     else
     cmp ax, subcommands.reset
     if e

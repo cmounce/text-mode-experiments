@@ -100,7 +100,7 @@ parse_command_line:
         call _parse_argument
         cmp ax, 0
         begin_if e
-            die EXIT_BAD_ARGS, "Unexpected arg"
+            die EXIT_BAD_ARGS, "Unknown argument: ", si
         end_if
 
         .loop_condition:
