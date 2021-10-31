@@ -17,9 +17,10 @@ global_buffer equ section..bss.start + bss_size
 
 ; Define some exit codes in rough order of severity
 EXIT_OK         equ 0
-EXIT_BAD_ARGS   equ 1
-EXIT_BAD_BUNDLE equ 2
-EXIT_BAD_CODE   equ 3
+EXIT_ERROR      equ 1   ; Generic error, in spite of valid user input
+EXIT_BAD_ARGS   equ 2   ; Invalid user input
+EXIT_BAD_BUNDLE equ 3   ; Bundled palette/font/etc are invalid
+EXIT_BAD_CODE   equ 4   ; The .COM file itself is damaged
 
 ;==============================================================================
 ; Program start
@@ -41,7 +42,7 @@ main:
     call parse_bundled_data
     cmp ax, 1
     je .bundle_ok
-    die EXIT_BAD_BUNDLE, "bundled data is corrupt"
+    die EXIT_BAD_BUNDLE, "Bundled data is corrupt"
     .bundle_ok:
 
     ; Parse/validate our command-line arguments
@@ -70,7 +71,7 @@ main:
         pop ax
         call install_and_terminate
         .install_fail:
-        inspect "install failed:", al, cl, dx
+        inspect "Install failed:", al, cl, dx
     else
     cmp ax, subcommands.uninstall
     if e
@@ -83,10 +84,9 @@ main:
         call reset_video
         jmp .exit
         .uninstall_not_found:
-        println "TSR not in memory"
-        jmp .exit
+        die EXIT_ERROR, "TSR not in memory"
         .uninstall_failed:
-        println "uninstall failed"
+        die EXIT_ERROR, "Uninstall failed"
     else
     cmp ax, subcommands.reset
     if e
