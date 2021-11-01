@@ -30,7 +30,6 @@ jmp main
 
 %include 'args.asm'
 %include 'bundle.asm'
-%include 'debug.asm'
 %include 'install.asm'
 %include 'print.asm'
 %include 'video.asm'
@@ -63,30 +62,11 @@ main:
     else
     cmp ax, subcommands.install
     if e
-        call scan_multiplex_ids
-        cmp al, 0
-        je .install_fail
-        push ax                     ; Save multiplex ID
-        call preview_mode
-        pop ax
-        call install_and_terminate
-        .install_fail:
-        inspect "Install failed:", al, cl, dx
+        jmp install_tsr
     else
     cmp ax, subcommands.uninstall
     if e
-        call scan_multiplex_ids
-        cmp dx, 0
-        je .uninstall_not_found
         call uninstall_tsr
-        cmp ax, 0
-        je .uninstall_failed
-        call reset_video
-        jmp .exit
-        .uninstall_not_found:
-        die EXIT_ERROR, "TSR not in memory"
-        .uninstall_failed:
-        die EXIT_ERROR, "Uninstall failed"
     else
     cmp ax, subcommands.reset
     if e

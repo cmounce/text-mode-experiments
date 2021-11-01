@@ -1,8 +1,9 @@
 ;; Code for installing/uninstalling the TSR
+%include "macros.asm"
 %include "string.asm"
 
 ;===============================================================================
-; Data
+; Constants
 ;-------------------------------------------------------------------------------
 
 ; The install/uninstall routines need a way to tell our TSR apart from any
@@ -25,6 +26,7 @@ tsr_id:
 ; When processing an interrupt, we reuse the PSP's command-line space as a
 ; miniature stack. The last 2 words of the PSP holds the old stack pointer,
 ; and the 124 bytes preceding them are our temporary stack space.
+; TODO: Use more of the PSP (e.g., FCB space) and tweak the stack size
 absolute 80h
 resb 124                        ; Stack space
 resident_stack_start:
@@ -57,13 +59,123 @@ resident_data:
 section .text
 
 ;-------------------------------------------------------------------------------
+; Installs the TSR into memory.
+;
+; This routine never returns because it always terminates the process:
+; - On success, the program terminates and stays resident.
+; - On failure, the program quits with an error message.
+;-------------------------------------------------------------------------------
+install_tsr:
+    ; Get AL = an available multiplex ID
+    call _scan_multiplex_ids
+    cmp al, 0
+    begin_if e
+        cmp cx, 0       ; CX will be set if TSR already installed
+        begin_if ne
+            die EXIT_ERROR, "TSR already installed"
+        else
+            die EXIT_ERROR, "Install failed"
+        end_if
+    end_if
+
+    ; Set the video mode to match what we're going to install
+    push ax             ; Save multiplex ID
+    call preview_mode
+    pop ax
+
+    ; Install the TSR
+    jmp _install_and_terminate
+
+
+;-------------------------------------------------------------------------------
+; Uninstall the TSR from memory.
+;-------------------------------------------------------------------------------
+uninstall_tsr:
+    ; Get CX = TSR's memory segment
+    call _scan_multiplex_ids
+    cmp cx, 0
+    begin_if e
+        die EXIT_ERROR, "Nothing to uninstall"
+    end_if
+
+    ; Attempt to remove TSR from memory
+    mov cx, dx
+    call _uninstall_tsr
+    cmp ax, 0
+    begin_if e
+        die EXIT_ERROR, "Uninstall failed"
+    end_if
+
+    ; TSR successfully removed. Reset video and return.
+    call reset_video
+    ret
+
+
+;-------------------------------------------------------------------------------
+; Safely remove TSR from memory.
+;
+; DX = Resident segment
+; Returns AX=0 on failure, AX=1 on success.
+;-------------------------------------------------------------------------------
+_uninstall_tsr:
+    push bx
+    push ds
+    push es
+    cli
+
+    ; Make sure interrupt handlers haven't changed since we were installed.
+    ; If they have, it means another TSR is installed on top of us.
+    mov ax, 3510h   ; Get current 10h vector
+    int 21h
+    mov ax, es      ; Make sure segment hasn't changed. Technically, we should
+    cmp ax, dx      ; also check the offset, but (1) that's hard to calculate,
+    jne .fail       ; and (2) it's unlikely someone else is using our segment.
+
+    mov ax, 352Fh   ; Get current 2Fh vector
+    int 21h
+    mov ax, es      ; Same as above: make sure segment hasn't changed,
+    cmp ax, dx      ; and abort if it has.
+    jne .fail
+
+    ; Restore old interrupt handlers
+    mov es, dx
+    mov ax, 2510h                       ; Set 10h handler
+    mov ds, [es:old_int_10h.segment]
+    mov dx, [es:old_int_10h.offset]
+    int 21h
+
+    mov ax, 252Fh                       ; Set 2Fh handler
+    mov ds, [es:old_int_2fh.segment]
+    mov dx, [es:old_int_2fh.offset]
+    int 21h
+
+    ; Free resident memory
+    mov ah, 49h                         ; ES = segment to free
+    int 21h
+
+    .success:
+    mov ax, 1
+    jmp .ret
+
+    .fail:
+    xor ax, ax
+
+    .ret:
+    sti
+    pop es
+    pop ds
+    pop bx
+    ret
+
+
+;-------------------------------------------------------------------------------
 ; Checks to see if our TSR is already resident in memory.
 ;
 ; Returns:
 ; - AL = an available multiplex ID, or 0 if TSR cannot be installed
 ; - CX = memory segment of our TSR, or 0 if it is not installed
 ;-------------------------------------------------------------------------------
-scan_multiplex_ids:
+_scan_multiplex_ids:
     .min_id equ 0C0h    ; Range of multiplex IDs reserved for applications
     .max_id equ 0FFh
 
@@ -174,7 +286,7 @@ _check_single_multiplex_id:
 ;
 ; AL = Available multiplex ID to install into (found via scan_multiplex_ids)
 ;-------------------------------------------------------------------------------
-install_and_terminate:
+_install_and_terminate:
     ; Save AL = multiplex ID so we can use it later
     push ax
 
@@ -213,7 +325,7 @@ install_and_terminate:
     ; Copy installer to global buffer.
     ; This is to guarantee that the installation code will be located in
     ; memory at a location where it won't accidentally overwrite itself.
-    mov si, finalize_install
+    mov si, _finalize_install
     call concat_wstring
 
     ; Call installer
@@ -232,7 +344,7 @@ install_and_terminate:
 ;   2. Code for video interrupt handler
 ;   3. Code for TSR multiplex handler
 ;-------------------------------------------------------------------------------
-finalize_install:
+_finalize_install:
 begin_wstring
     ; Save TSR handler ID in resident global
     mov [multiplex_ax.id], al
@@ -295,63 +407,6 @@ begin_wstring
         rep movsb
         ret
 end_wstring
-
-
-;-------------------------------------------------------------------------------
-; Safely remove TSR from memory.
-;
-; DX = Resident segment
-; Returns AX=0 on failure, AX=1 on success.
-;-------------------------------------------------------------------------------
-uninstall_tsr:
-    push bx
-    push ds
-    push es
-    cli
-
-    ; Make sure interrupt handlers haven't changed since we were installed.
-    ; If they have, it means another TSR is installed on top of us.
-    mov ax, 3510h   ; Get current 10h vector
-    int 21h
-    mov ax, es      ; Make sure segment hasn't changed. Technically, we should
-    cmp ax, dx      ; also check the offset, but (1) that's hard to calculate,
-    jne .fail       ; and (2) it's unlikely someone else is using our segment.
-
-    mov ax, 352Fh   ; Get current 2Fh vector
-    int 21h
-    mov ax, es      ; Same as above: make sure segment hasn't changed,
-    cmp ax, dx      ; and abort if it has.
-    jne .fail
-
-    ; Restore old interrupt handlers
-    mov es, dx
-    mov ax, 2510h                       ; Set 10h handler
-    mov ds, [es:old_int_10h.segment]
-    mov dx, [es:old_int_10h.offset]
-    int 21h
-
-    mov ax, 252Fh                       ; Set 2Fh handler
-    mov ds, [es:old_int_2fh.segment]
-    mov dx, [es:old_int_2fh.offset]
-    int 21h
-
-    ; Free resident memory
-    mov ah, 49h     ; ES = segment to free
-    int 21h
-
-    .success:
-    mov ax, 1
-    jmp .ret
-
-    .fail:
-    xor ax, ax
-
-    .ret:
-    sti
-    pop es
-    pop ds
-    pop bx
-    ret
 
 
 ;===============================================================================
