@@ -22,16 +22,19 @@ tsr_id:
 
 ; These memory addresses overlap with parts of the PSP and non-resident code.
 ; They only become valid after the resident code has been installed.
+absolute 5ch    ; Start of FCB area in PSP
 
-; When processing an interrupt, we reuse the PSP's command-line space as a
-; miniature stack. The last 2 words of the PSP holds the old stack pointer,
-; and the 124 bytes preceding them are our temporary stack space.
-; TODO: Use more of the PSP (e.g., FCB space) and tweak the stack size
-absolute 80h
-resb 124                        ; Stack space
-resident_stack_start:
-old_stack_pointer:  resw 1      ; Top of stack will contain old SP/SS
-old_stack_segment:  resw 1
+; Reserve stack space for our interrupt handlers to use.
+; This overlaps with the top of the PSP space, specifically the two FCBs and
+; the command-line string -- unused memory once the TSR is installed.
+RESIDENT_STACK_SIZE equ 64
+resb RESIDENT_STACK_SIZE
+resident_stack_bottom:
+
+; Storage for the old stack's SS:SP, so we can restore it on return
+old_stack:
+    .offset:    resw 1
+    .segment:   resw 1
 
 ; Contains the TSR ID to identify this chunk of memory as our TSR
 resident_nametag:   resb tsr_id.length
@@ -426,11 +429,11 @@ begin_wstring
     .set_video_mode:
 
     ; Switch to our own stack, so we don't depend on the caller's
-    mov [cs:old_stack_pointer], sp  ; Save old SS:SP
-    mov [cs:old_stack_segment], ss
-    mov sp, cs                      ; New SS:SP = CS:resident_stack_start
+    mov [cs:old_stack.offset], sp   ; Save old SS:SP
+    mov [cs:old_stack.segment], ss
+    mov sp, cs                      ; New SS:SP = CS:resident_stack_bottom
     mov ss, sp
-    mov sp, resident_stack_start
+    mov sp, resident_stack_bottom
 
     ; Call the old handler as if it was a regular subroutine
     pushf
@@ -447,8 +450,8 @@ int_10h_handler_suffix:
 begin_wstring
     pop ds                          ; Restore registers, including whatever the
     popa                            ; old int 10h handler returned.
-    mov sp, [cs:old_stack_pointer]  ; Restore stack.
-    mov ss, [cs:old_stack_segment]
+    mov sp, [cs:old_stack.offset]   ; Restore stack.
+    mov ss, [cs:old_stack.segment]
     iret
 end_wstring
 
