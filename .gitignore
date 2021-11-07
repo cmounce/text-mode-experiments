@@ -1,2 +1,3 @@
-*.com
+*.COM
 __pycache__
+src/list.txt
