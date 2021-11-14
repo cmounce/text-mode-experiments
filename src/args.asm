@@ -8,8 +8,8 @@
 ;------------------------------------------------------------------------------
 
 ; The command-line string in the PSP.
-; TODO: Rename to something more accurate.
-args_list           equ 80h
+arg_string_length      equ 80h
+arg_string_contents    equ 81h
 
 
 ;===============================================================================
@@ -48,14 +48,12 @@ _flags:
 section .bss
 
 ; String list representing the tokenized argument string.
-; How much space do we need? The arg string could be up to 127 bytes long,
-; which means in the worst case we could have 64 one-character tokens (i.e.,
-; every other byte is a delimiter). Each of those tokens would take up 3 bytes
-; (2 byte header, 1 byte content), and the list itself would be terminated by
-; an empty string (2 byte header, 0 bytes content).
-MAX_TOKENS equ (127 + 1)/2
+; How much space do we need? We could have up to 127 tokens, each token taking
+; up three bytes (2 byte string header, 1 byte content). Additionally, the list
+; itself is terminated with an empty string (2 byte header, no content).
+MAX_TOKENS equ 127  ; Worst case: arg string is nothing but forward-slashes
 _arg_tokens:
-    resb (MAX_TOKENS * 3) + 2
+    resb MAX_TOKENS * 3 + 2
 
 ; Pointer to a wstring from the subcommands list, e.g., subcommands.install
 subcommand_arg:
@@ -82,7 +80,7 @@ parse_command_line:
     push si
 
     ; Set up SI = start of token list
-    call _tokenize_args         ; _arg_tokens = string list of tokens
+    call tokenize_arg_string    ; _arg_tokens = string list of tokens
     mov si, _arg_tokens         ; SI = first token
 
     ; Parse first word as a subcommand, if it exists
@@ -212,56 +210,62 @@ _is_short_subcommand:
 ;-------------------------------------------------------------------------------
 ; Tokenize the PSP argument string and store the result in _arg_tokens.
 ;-------------------------------------------------------------------------------
-_tokenize_args:
+tokenize_arg_string:
     push bx
     push di
     push si
 
     ; Set up all our pointers
-    mov si, args_list   ; SI = pointer to copy data from
-    inc si              ;   (skipping the length header)
-    mov di, _arg_tokens ; DI = destination for resulting string list
-    xor bx, bx          ; BX = pointer to last character of PSP string,
-    mov bl, [args_list] ;   used for bounds checking
-    add bx, args_list
+    mov si, arg_string_contents     ; SI = argument string to read from
+    mov bl, [arg_string_length]     ; BL = number of characters in string
+    mov di, _arg_tokens             ; DI = token list to write to
 
     ; Loop over each char in the arg string
     .for_each:
-        ; Make sure SI is still within bounds
-        cmp si, bx
-        ja .break
+        cmp bl, 0
+        je .break
+        dec bl
 
-        lodsb                       ; AL = next character from SI
+        ; Read next character into AL
+        lodsb
+
+        ; Whitespace and '=' are never included in tokens.
+        ; If we see these, skip the character and start a new token.
         call _is_token_separator
-        begin_if ne
-            ; AL is part of a token: append it to the current string in DI.
-            ; Note that lists are terminated by an empty string, so DI should
-            ; always point to a valid string.
-            call concat_byte_wstring
-        else
-            ; AL is not part of a token.
-            ; Does DI point to an in-progress token?
-            cmp word [di], 0
-        if ne
-            ; DI points to an in-progress token, which we need to wrap up.
-            next_wstring di     ; Advance DI past the latest token on the list
-            mov word [di], 0    ; Write empty string/list terminator to DI
+        begin_if e
+            call .flush_current_token
+            jmp .for_each
         end_if
+
+        ; Forward slashes always indicate the start of a new token.
+        cmp al, '/'
+        begin_if e
+            call .flush_current_token
+        end_if
+
+        ; Append the character to the current token in DI.
+        call concat_byte_wstring
 
         jmp .for_each
     .break:
 
     ; Terminate the list if it isn't terminated already
-    cmp word [di], 0
-    begin_if ne
-        next_wstring di     ; Advance DI past the last token
-        mov word [di], 0    ; Write empty string/list terminator to DI
-    end_if
+    call .flush_current_token
 
     pop si
     pop di
     pop bx
     ret
+
+    ; Helper: Make DI point to an empty string at the end of the token list.
+    ; This is a no-op if DI already points to an empty string.
+    .flush_current_token:
+        cmp word [di], 0
+        begin_if ne
+            next_wstring di     ; Advance DI to point after current contents
+            mov word [di], 0    ; Write length header for empty string
+        end_if
+        ret
 
 
 ;-------------------------------------------------------------------------------
