@@ -41,6 +41,10 @@ subcommands:
 _flags:
     .help:      db_wstring "/?"
 
+; Define some key-value options
+_options:
+    .output:    db_wstring "/o"
+
 
 ;==============================================================================
 ; Parsed data
@@ -59,9 +63,13 @@ _arg_tokens:
 subcommand_arg:
     resw 1
 
-; Array of booleans representing args that are present/absent
+; Booleans representing flags that are present/absent
 parsed_flags:
-    .help:  resb 1
+    .help:      resb 1
+
+; Pointers to wstrings representing option values
+parsed_options:
+    .output:    resw 1
 
 
 ;==============================
@@ -104,8 +112,6 @@ parse_command_line:
         .loop_condition:
         cmp word [si], 0
         jne .loop
-
-    ; TODO: Return a bool for arg validation?
 
     pop si
     ret
@@ -157,7 +163,12 @@ _parse_argument:
         ret
     end_if
 
-    ; TODO: Try to parse SI as a 2-token option
+    call _parse_option
+    cmp ax, 0
+    begin_if ne
+        ; Success: return AX = 1
+        ret
+    end_if
 
     ; Failure: return AX = 0
     ret
@@ -185,6 +196,39 @@ _parse_flag:
     mov ax, 1
     .ret:
     pop di
+    ret
+
+;-------------------------------------------------------------------------------
+; Tries to consume a 2-token option from SI, e.g., "/foo=bar"
+;-------------------------------------------------------------------------------
+_parse_option:
+    push bx
+    push di
+
+    ; Set SI = option key, BX = option value
+    mov bx, si
+    cmp word [bx], 0
+    je .ret             ; Not enough tokens (0)
+    next_wstring bx
+    cmp word [bx], 0
+    je .ret             ; Not enough tokens (1)
+
+    ; Compare SI against each of the option strings
+    mov di, _options.output
+    call icmp_wstring
+    begin_if e
+        mov [parsed_options.output], bx
+        ; TODO: Move consume-token, return-success logic to central place
+        next_wstring bx                 ; Consume the last token
+        mov si, bx
+        mov ax, 1                       ; Return success
+    else
+        xor ax, ax
+    end_if
+
+    .ret:
+    pop di
+    pop bx
     ret
 
 

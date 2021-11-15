@@ -26,10 +26,12 @@ EXIT_BAD_CODE   equ 4   ; The .COM file itself is damaged
 ; Program start
 ;------------------------------------------------------------------------------
 section .text
+
 jmp main
 
 %include 'args.asm'
 %include 'bundle.asm'
+%include 'create.asm'
 %include 'install.asm'
 %include 'print.asm'
 %include 'video.asm'
@@ -71,6 +73,10 @@ main:
     cmp ax, subcommands.reset
     if e
         call reset_video
+    else
+    cmp ax, subcommands.new
+    if e
+        call create_new_tsr
     end_if
 
     .exit:
