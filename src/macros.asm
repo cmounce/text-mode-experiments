@@ -48,12 +48,12 @@
 ;   while_condition
 ;       cmp ax, 123
 ;   begin_while ne
-;       ; Loop body that modifies AX
-;       inc ax
+;       ; Loop body...
+;       ja break        ; Code can optionally jump out of the loop
+;       jb continue     ; or jump back to the loop condition
+;       ; Loop body...
 ;   end_while
-;   ; AX = 123 by this point
 ;-------------------------------------------------------------------------------
-
 %macro while_condition 0
     %push while_block
     push_loop_context
@@ -69,6 +69,37 @@
     break:
     %pop while_block
     pop_loop_context
+%endmacro
+
+
+;-------------------------------------------------------------------------------
+; Macros for do-while loops
+;
+; Usage:
+;   begin_do_while
+;       ; Loop body...
+;       ja break        ; Code can optionally jump out of the loop
+;       jb continue     ; or jump forward to the loop condition
+;       ; Loop body...
+;   do_while_condition
+;       cmp ax, 123
+;   end_do_while ne
+;-------------------------------------------------------------------------------
+%macro begin_do_while 0
+    %push do_while_block
+    push_loop_context
+    %$top_of_loop:
+%endmacro
+
+%macro do_while_condition 0
+    continue:
+%endmacro
+
+%macro end_do_while 1
+    j%1 %$top_of_loop
+    break:
+    pop_loop_context
+    %pop do_while_block
 %endmacro
 
 
