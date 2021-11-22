@@ -15,13 +15,6 @@ global_buffer equ section..bss.start + bss_size
 ; - 20K to 60K: BSS; Buffer space for assembling installable
 ; - 60K to 64K: Stack space
 
-; Define some exit codes in rough order of severity
-EXIT_OK         equ 0
-EXIT_ERROR      equ 1   ; Generic error, in spite of valid user input
-EXIT_BAD_ARGS   equ 2   ; Invalid user input
-EXIT_BAD_BUNDLE equ 3   ; Bundled palette/font/etc are invalid
-EXIT_BAD_CODE   equ 4   ; The .COM file itself is damaged
-
 ;==============================================================================
 ; Program start
 ;------------------------------------------------------------------------------
@@ -36,6 +29,7 @@ jmp main
 %include 'install.asm'
 %include 'macros.asm'
 %include 'print.asm'
+%include 'system.asm'
 %include 'video.asm'
 
 main:
@@ -43,10 +37,11 @@ main:
 
     ; Parse/validate the data bundle at the end of the .COM file
     call parse_bundled_data
-    cmp ax, 1
-    je .bundle_ok
-    die EXIT_BAD_BUNDLE, "Bundled data is corrupt"
-    .bundle_ok:
+    cmp ax, 0
+    begin_if e
+        ; TODO: Should this move into the parse_bundled_data function?
+        die EXIT_BAD_BUNDLE, "Bundled data is corrupt"
+    end_if
 
     ; Parse/validate our command-line arguments
     call parse_command_line
@@ -79,9 +74,7 @@ main:
         call preview_mode
     end_if
 
-    .exit:
-    mov ah, 0
-    int 21h
+    exit 0
 
 
 ;-------------------------------------------------------------------------------

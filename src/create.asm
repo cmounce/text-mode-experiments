@@ -106,7 +106,7 @@ copy_as_asciiz:
     push si
 
     ; Copy string to buffer
-    mov cx, ds          ; Make sure ES = DS (TODO: is this necessary?)
+    mov cx, ds          ; Make sure ES = DS
     mov es, cx
     mov cx, [si]        ; CX = number of bytes in the string
     add si, 2           ; SI = contents of wstring (skip the header)

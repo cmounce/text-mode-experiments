@@ -3,6 +3,7 @@
 %define PRINT_ASM
 
 %include 'string.asm'
+%include 'system.asm'
 
 ;==============================================================================
 ; Constants
@@ -71,8 +72,7 @@ _newline:
 ; Example: 'die 123, "foo"' prints "foo" to stderr and exits with code 123.
 %macro die 2-*
     _multipush_multicall eprint_wstring, %{2:-1}, _newline
-    mov al, %1
-    jmp _die_exit
+    exit %1
 %endmacro
 
 
@@ -119,16 +119,6 @@ print_wstring:
 eprint_wstring:
     mov ax, 2
     jmp fprint_wstring
-
-
-;-------------------------------------------------------------------------------
-; Helper for die macro: exit with return code.
-;
-; AL = Process return code
-;-------------------------------------------------------------------------------
-_die_exit:
-    mov ah, 4ch             ; Terminate with return code
-    int 21h
 
 
 ; PRINT_ASM

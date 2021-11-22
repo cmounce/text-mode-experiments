@@ -43,6 +43,4 @@ show_help:
     push dx
     call print_wstring
 
-    ; Exit successfully
-    mov ah, 0
-    int 21h
+    exit 0
