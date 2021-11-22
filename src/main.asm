@@ -32,7 +32,9 @@ jmp main
 %include 'args.asm'
 %include 'bundle.asm'
 %include 'create.asm'
+%include 'help.asm'
 %include 'install.asm'
+%include 'macros.asm'
 %include 'print.asm'
 %include 'video.asm'
 
@@ -49,21 +51,16 @@ main:
     ; Parse/validate our command-line arguments
     call parse_command_line
 
-    ; Test out the help flag
+    ; If the help flag is passed, suppress normal behavior and show help
     cmp byte [parsed_flags.help], 0
     begin_if ne
-        println "Help not implemented yet"
-        jmp .exit
+        jmp show_help
     end_if
 
     ; Switch based on the parsed subcommand
     mov ax, [subcommand_arg]
-    cmp ax, subcommands.preview
-    begin_if e
-        call preview_mode
-    else
     cmp ax, subcommands.install
-    if e
+    begin_if e
         jmp install_tsr
     else
     cmp ax, subcommands.uninstall
@@ -77,6 +74,9 @@ main:
     cmp ax, subcommands.new
     if e
         call create_new_tsr
+    else
+        ; Default if no subcommand specified
+        call preview_mode
     end_if
 
     .exit:

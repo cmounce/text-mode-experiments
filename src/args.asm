@@ -94,11 +94,6 @@ parse_command_line:
     ; Parse first word as a subcommand, if it exists
     call _parse_subcommand
     cmp word [subcommand_arg], 0
-    begin_if e
-        ; No subcommand present: default to subcommand.preview
-        ; TODO: Support different behavior for "foo /?" vs. "foo preview /?"
-        mov word [subcommand_arg], subcommands.preview
-    end_if
 
     ; Consume all remaining arguments
     jmp .loop_condition
