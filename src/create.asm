@@ -1,4 +1,5 @@
 ; Functionality for creating new TSRs
+%include 'system.asm'
 
 ;-------------------------------------------------------------------------------
 ; Consts
@@ -62,59 +63,4 @@ create_new_tsr:
     end_if
 
     pop bx
-    ret
-
-
-; Create a new file and return the handle.
-;
-; DX = File path, as a wstring
-; On success, returns AX = file handle
-; On failure, sets CF and returns AX = error code
-dos_create_new_file:
-    push bp
-    push di
-    push si
-    mov bp, sp
-
-    ; Write zstring to DI = a buffer on the stack
-    mov si, dx      ; SI = wstring path
-    sub sp, [si]    ; Allocate space on stack for string contents
-    dec sp          ; ...and a null terminator.
-    mov di, sp      ; DI = buffer
-    call copy_as_asciiz
-
-    ; Call DOS with the zstring
-    mov ah, 5bh     ; Create new file
-    xor cx, cx      ; CX = attribute bits
-    mov dx, di      ; DX = asciiz path
-    int 21h
-
-    ; Clean up, leaving AX and CF untouched
-    mov sp, bp
-    pop si
-    pop di
-    pop bp
-    ret
-
-
-; Convert the given wstring to asciiz and write it to a buffer.
-;
-; SI = address of wstring to copy
-; DI = address of buffer to write asciiz string
-copy_as_asciiz:
-    push di
-    push si
-
-    ; Copy string to buffer
-    mov cx, ds          ; Make sure ES = DS
-    mov es, cx
-    mov cx, [si]        ; CX = number of bytes in the string
-    add si, 2           ; SI = contents of wstring (skip the header)
-    rep movsb
-
-    ; Write null terminator
-    mov byte [di], 0
-
-    pop si
-    pop di
     ret
