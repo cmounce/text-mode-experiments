@@ -12,18 +12,15 @@
 ;           ; Arbitrary assembly...
 ;       end_wstring
 ; In the above example, foo points to a wstring containing the assembled bytes
-; of the code between the delimiters. Additionally, the macro defines a label
-; foo.contents pointing to the raw bytes (skipping the length header).
+; of the code between the delimiters.
 %macro begin_wstring 0
     %push fragment
     dw %$fragment_size
     %$fragment_start:
-    .contents:
 %endmacro
 %macro end_wstring 0
     %$fragment_size equ $ - %$fragment_start
-    .length equ %$fragment_size
-    %pop
+    %pop fragment
 %endmacro
 
 ; Like db, but adds a two-byte length prefix before the given string.

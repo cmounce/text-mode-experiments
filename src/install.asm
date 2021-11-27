@@ -11,8 +11,10 @@
 section .data
 tsr_id:
     begin_wstring
-    ; First bytes of SHA-256 hash: "Quantum's all-purpose ZZT initializer"
-    db 88, 175, 157, 250, 178, 228, 109, 45
+    .contents:
+        ; First bytes of SHA-256 hash: "Quantum's all-purpose ZZT initializer"
+        db 88, 175, 157, 250, 178, 228, 109, 45
+    .length equ 8
     end_wstring
 
 

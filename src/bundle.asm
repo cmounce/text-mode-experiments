@@ -30,13 +30,15 @@ start_of_bundle:
 
 ; Minor hack: initialize the .com file with some palette data.
 ; In the future, we won't do this.
-dw 8+(3*16)
-db PALETTE_KEY, "="
-incbin "../goodies/palettes/rgb332.pal"
+begin_wstring
+    db PALETTE_KEY, "="
+    incbin "../goodies/palettes/rgb332.pal"
+end_wstring
 
-dw 5+(14*256)
-db FONT_KEY, "="
-incbin "../goodies/fonts/fixed.f14"
+begin_wstring
+    db FONT_KEY, "="
+    incbin "../goodies/fonts/fixed.f14"
+end_wstring
 
 begin_wstring
     db BLINK_KEY, "=", 0
