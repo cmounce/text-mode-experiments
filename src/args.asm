@@ -44,6 +44,7 @@ _flags:
 ; Define some key-value options
 _options:
     .output:    db_wstring "/o"
+    .palette:   db_wstring "/p"
 
 
 ;==============================================================================
@@ -70,6 +71,7 @@ parsed_flags:
 ; Pointers to wstrings representing option values
 parsed_options:
     .output:    resw 1
+    .palette:   resw 1
 
 
 ;==============================
@@ -195,6 +197,8 @@ _parse_flag:
 
 ;-------------------------------------------------------------------------------
 ; Tries to consume a 2-token option from SI, e.g., "/foo=bar"
+;
+; Returns AX = 1 on success, AX = 0 on failure.
 ;-------------------------------------------------------------------------------
 _parse_option:
     push bx
@@ -218,7 +222,15 @@ _parse_option:
         mov si, bx
         mov ax, 1                       ; Return success
     else
-        xor ax, ax
+    mov di, _options.palette
+    call icmp_wstring
+    if e
+        mov [parsed_options.palette], bx
+        next_wstring bx                 ; Consume the last token
+        mov si, bx
+        mov ax, 1                       ; Return success
+    else
+        xor ax, ax                      ; Return failure
     end_if
 
     .ret:

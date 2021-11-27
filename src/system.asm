@@ -52,6 +52,16 @@ dos_open_existing_file:
     ret
 
 
+; Close a file handle.
+;
+; BX = handle
+; On failure, returns CF = 1, AX = error code
+dos_close_file:
+    mov ah, 3eh
+    int 21h
+    ret
+
+
 ;-------------------------------------------------------------------------------
 ; Internal helpers
 ;-------------------------------------------------------------------------------
