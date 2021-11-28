@@ -24,10 +24,10 @@ jmp main
 
 %include 'args.asm'
 %include 'bundle.asm'
-%include 'create.asm'
 %include 'help.asm'
 %include 'install.asm'
 %include 'macros.asm'
+%include 'new.asm'
 %include 'print.asm'
 %include 'system.asm'
 %include 'video.asm'

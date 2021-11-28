@@ -1,7 +1,10 @@
-;; Code related to the bundle of config data appended to the .com file
+;; Code related to the bundle of config data appended to the .COM file
+%ifndef BUNDLE_ASM
+%define BUNDLE_ASM
+
 %include "string.asm"
 
-;===============================================================================
+;-------------------------------------------------------------------------------
 ; Consts
 ;-------------------------------------------------------------------------------
 section .data
@@ -19,55 +22,27 @@ bundle_keys:
     db 0
 
 
-;===============================================================================
-; Appended data
 ;-------------------------------------------------------------------------------
-section .append
-
-; Set up data header and save its address
-db DATA_HEADER
-start_of_bundle:
-
-; Minor hack: initialize the .com file with some palette data.
-; In the future, we won't do this.
-begin_wstring
-    db PALETTE_KEY, "="
-    incbin "../goodies/palettes/rgb332.pal"
-end_wstring
-
-begin_wstring
-    db FONT_KEY, "="
-    incbin "../goodies/fonts/fixed.f14"
-end_wstring
-
-begin_wstring
-    db BLINK_KEY, "=", 0
-end_wstring
-
-; Terminate the data bundle
-dw 0
-
-
-;===============================================================================
-; Variables
+; Parsed data
 ;-------------------------------------------------------------------------------
 section .bss
+
+; Output of parse_bundled_data: the values for each key in the bundle.
+; These are each pointers to wstrings, or null if not present.
 parsed_bundle:
     .palette:       resw 1
     .font:          resw 1
     .blink:         resw 1
 
 
-;===============================================================================
+;-------------------------------------------------------------------------------
 ; Code
 ;-------------------------------------------------------------------------------
 section .text
 
-;-------------------------------------------------------------------------------
-; Reads bundled data from end of .com file into BSS structs.
+; Reads bundled data from end of .COM file into BSS structs.
 ;
 ; Returns AX=1 on success, AX=0 on failure.
-;-------------------------------------------------------------------------------
 parse_bundled_data:
     push si
     push di
@@ -142,8 +117,38 @@ parse_bundled_data:
 
 
 ;-------------------------------------------------------------------------------
-; Returns AX = 1 if the bundled data has a valid structure, AX = 0 otherwise.
+; Appended data
 ;-------------------------------------------------------------------------------
+section .append
+
+; Set up data header and save its address
+db DATA_HEADER
+start_of_bundle:
+
+; Minor hack: initialize the .com file with some palette data.
+; In the future, we won't do this.
+begin_wstring
+    db PALETTE_KEY, "="
+    incbin "../goodies/palettes/rgb332.pal"
+end_wstring
+begin_wstring
+    db FONT_KEY, "="
+    incbin "../goodies/fonts/fixed.f14"
+end_wstring
+begin_wstring
+    db BLINK_KEY, "=", 0
+end_wstring
+
+; Terminate the data bundle
+dw 0
+
+
+;-------------------------------------------------------------------------------
+; Internal helpers
+;-------------------------------------------------------------------------------
+section .text
+
+; Returns AX = 1 if the bundled data has a valid structure, AX = 0 otherwise.
 validate_bundle_structure:
     push bx
     push si
@@ -177,14 +182,12 @@ validate_bundle_structure:
     ret
 
 
-;-------------------------------------------------------------------------------
 ; Removes "KEY=" from a key-value string, but only if it matches the given key.
 ;
 ; SI = wstring of a key-value pair, e.g., "FOO=123"
 ; DI = wstring of a key to compare against, e.g., "FOO"
 ; If keys match, returns ZF = 1 and mutated string in SI.
 ; If they don't, returns ZF = 0 and leaves SI alone.
-;-------------------------------------------------------------------------------
 try_strip_key_prefix:
     push di
     push si
@@ -221,3 +224,7 @@ try_strip_key_prefix:
     pop di
     cmp si, di          ; Set ZF=0 (inputs should never match)
     ret
+
+
+; BUNDLE_ASM
+%endif
