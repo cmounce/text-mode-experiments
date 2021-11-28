@@ -93,15 +93,13 @@ parse_command_line:
 
     ; Parse first word as a subcommand, if it exists
     call parse_subcommand
-    cmp word [subcommand_arg], 0
 
     ; Consume all remaining arguments
     while_condition
         cmp word [si], 0
     begin_while ne
         call parse_argument
-        cmp ax, 0
-        begin_if e
+        begin_if c
             die EXIT_BAD_ARGS, "Unknown argument: ", si
         end_if
     end_while
@@ -170,7 +168,7 @@ tokenize_arg_string:
         ret
 
 
-; Returns ZF = 1 if the character in AL is a token separator.
+; Sets ZF if the character in AL is a token separator.
 ;
 ; Token separators are spaces, tabs, and any other ASCII control characters.
 ; Additionally, '=' is counted as a separator character: this is so that
@@ -225,7 +223,7 @@ parse_subcommand:
 ; Returns whether SI is a one-character abbreviation of the string in DI.
 ;
 ; Examples: "i" or "I" would match "install", but "x" or "inst" would not.
-; Returns ZF = 0 if there's a match, nonzero otherwise.
+; Sets ZF if there's a match.
 icmp_short_subcommand:
     cmp word [si], 1            ; Is the input string one character long?
     jne .ret
@@ -243,27 +241,27 @@ icmp_short_subcommand:
 ;
 ; 1-token args are boolean flags, e.g., "/?".
 ; 2-token args are key-value options, e.g., "/foo=bar" or "/foo bar".
+; Sets CF on failure.
 parse_argument:
     ; Try to parse SI as a 1-token flag
     call parse_flag
-    cmp ax, 0
-    begin_if ne
-        ; Success: return AX = 1
-        ret
+    begin_if nc
+        ret     ; Success: forward CF = 0
     end_if
 
+    ; Try to parse SI as the start of a key-value option
     call parse_option
-    cmp ax, 0
-    begin_if ne
-        ; Success: return AX = 1
-        ret
+    begin_if nc
+        ret     ; Success: forward CF = 0
     end_if
 
-    ; Failure: return AX = 0
+    stc         ; Failed to parse anything
     ret
 
 
-; Tries to consume a 1-token boolean flag from SI, e.g., "/?"
+; Tries to consume a 1-token boolean flag from SI, e.g., "/?".
+;
+; Sets CF on failure.
 parse_flag:
     push di
 
@@ -273,14 +271,14 @@ parse_flag:
     begin_if e
         mov byte [parsed_flags.help], 1
     else
-        ; Return failure: flag not recognized
-        xor ax, ax
+        stc         ; Error: flag not recognized
         jmp .ret
     end_if
 
-    ; Consume token and return success
+    ; Found a match: consume the matched token and return success
     next_wstring si
-    mov ax, 1
+    clc
+
     .ret:
     pop di
     ret
@@ -288,41 +286,43 @@ parse_flag:
 
 ; Tries to consume a 2-token option from SI, e.g., "/foo=bar"
 ;
-; Returns AX = 1 on success, AX = 0 on failure.
+; Sets CF on failure.
 parse_option:
     push bx
     push di
 
     ; Set SI = option key, BX = option value
+    cmp word [si], 0
+    je .failure         ; Not enough tokens (0)
     mov bx, si
-    cmp word [bx], 0
-    je .ret             ; Not enough tokens (0)
     next_wstring bx
     cmp word [bx], 0
-    je .ret             ; Not enough tokens (1)
+    je .failure         ; Not enough tokens (1)
 
     ; Compare SI against each of the option strings
     mov di, arg_options.output
     call icmp_wstring
     begin_if e
         mov [parsed_options.output], bx
-        ; TODO: Move consume-token, return-success logic to central place
-        next_wstring bx                 ; Consume the last token
-        mov si, bx
-        mov ax, 1                       ; Return success
     else
     mov di, arg_options.palette
     call icmp_wstring
     if e
         mov [parsed_options.palette], bx
-        next_wstring bx                 ; Consume the last token
-        mov si, bx
-        mov ax, 1                       ; Return success
     else
-        xor ax, ax                      ; Return failure
+        jmp .failure
     end_if
+
+    ; We found a match: consume both key and value tokens
+    mov si, bx          ; SI = value token
+    next_wstring si     ; SI = token following value token
+    clc                 ; Return success
 
     .ret:
     pop di
     pop bx
     ret
+
+    .failure:
+    stc
+    jmp .ret
