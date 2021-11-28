@@ -75,7 +75,7 @@ install_tsr:
     call _scan_multiplex_ids
     cmp al, 0
     begin_if e
-        cmp cx, 0       ; CX will be set if TSR already installed
+        cmp dx, 0       ; DX will be set if TSR already installed
         begin_if ne
             die EXIT_ERROR, "TSR already installed"
         else
@@ -96,15 +96,14 @@ install_tsr:
 ; Uninstall the TSR from memory.
 ;-------------------------------------------------------------------------------
 uninstall_tsr:
-    ; Get CX = TSR's memory segment
+    ; Get DX = TSR's memory segment
     call _scan_multiplex_ids
-    cmp cx, 0
+    cmp dx, 0
     begin_if e
         die EXIT_ERROR, "Nothing to uninstall"
     end_if
 
     ; Attempt to remove TSR from memory
-    mov cx, dx
     call _uninstall_tsr
     cmp ax, 0
     begin_if e
@@ -120,7 +119,7 @@ uninstall_tsr:
 ; Safely remove TSR from memory.
 ;
 ; DX = Resident segment
-; Returns AX=0 on failure, AX=1 on success.
+; Returns AX = 0 on failure, AX = 1 on success.
 ;-------------------------------------------------------------------------------
 _uninstall_tsr:
     push bx
@@ -178,52 +177,51 @@ _uninstall_tsr:
 ;
 ; Returns:
 ; - AL = an available multiplex ID, or 0 if TSR cannot be installed
-; - CX = memory segment of our TSR, or 0 if it is not installed
+; - DX = memory segment of our TSR, or 0 if it is not installed
 ;-------------------------------------------------------------------------------
 _scan_multiplex_ids:
-    .min_id equ 0C0h    ; Range of multiplex IDs reserved for applications
-    .max_id equ 0FFh
+    .MIN_ID equ 0C0h    ; Range of multiplex IDs reserved for applications
+    .MAX_ID equ 0FFh
 
     push bx
-    push es
 
-    mov bh, .max_id     ; BH = the ID we're currently scanning
+    mov bh, .MAX_ID     ; BH = the ID we're currently scanning
     xor bl, bl          ; BL = an unoccupied ID (0 if none found)
 
     ; Scan all multiplex IDs, from high to low
-    .loop:
+    begin_do_while
         ; Scan current multiplex ID
         mov ah, bh
         call _check_single_multiplex_id
-        mov dx, es          ; TODO: _check_single_multiplex_id to return DX?
-        cmp dx, 0           ; Stop scanning once we find our TSR
+        cmp dx, 0       ; If installed segment is non-zero, we found our TSR
         jne .found
 
-        ; If this is the first unoccupied ID we've found, take note of it
-        cmp al, 0           ; AL != 0 means some other TSR occupies this ID
-        jne .continue
-        cmp bl, 0           ; BL != 0 means we already found an available ID
-        jne .continue
-        mov bl, bh
-
-        ; Continue scanning
-        .continue:
+        ; Save the first unoccupied ID we find
+        cmp al, 0
+        begin_if e
+            ; AL == 0: This ID is available
+            cmp bl, 0
+            begin_if e
+                ; BL == 0: This is the first available ID we've found
+                mov bl, bh
+            end_if
+        end_if
+    do_while_condition
         dec bh
-        cmp bh, .min_id
-        jae .loop
+        cmp bh, .MIN_ID
+    end_do_while ae
 
     ; We finished scanning without finding our TSR
     mov al, bl  ; AL = available multiplex ID, if any
-    xor cx, cx  ; CX = 0 means our TSR not found
+    xor dx, dx  ; DX = 0 means our TSR not found
     jmp .ret
 
     ; We found our TSR
     .found:
     xor al, al  ; AL = 0 means TSR cannot be installed
-    mov cx, es  ; CX = segment of our TSR
+                ; DX = resident segment (set by _check_single_multiplex_id)
 
     .ret:
-    pop es
     pop bx
     ret
 
@@ -233,17 +231,17 @@ _scan_multiplex_ids:
 ;
 ; Takes AH = the multiplex ID to check.
 ; Returns AL = 0 if that multiplex ID is available.
-; Returns ES = resident segment if our TSR is installed here, 0 otherwise.
+; Returns DX = resident segment if our TSR is installed here, 0 otherwise.
 ;-------------------------------------------------------------------------------
 _check_single_multiplex_id:
     ; We're about to call an unknown TSR. Save all 16-bit registers except for:
     ; - Caller-saved registers: AX, CX, DX are acceptable to clobber
     ; - Registers considered to be safe: CS:IP and SS:SP
-    ; - ES, because we overwrite it anyway as part of our return value
     push bp
     push bx
     push di
     push ds
+    push es
     push si
 
     ; Call multiplex: AX = ??00h, where ?? is the ID to check
@@ -254,31 +252,31 @@ _check_single_multiplex_id:
     int 2fh
 
     ; Is there a TSR at this multiplex ID?
-    cmp al, 0       ; This AL is also our return value: 0 means unoccupied.
-    je .unoccupied
+    cmp al, 0       ; If not, AL will remain 0.
+    je .unoccupied  ; We reuse this 0 as part of our return value.
 
     ; Is the TSR at this multiplex ID our TSR?
     mov si, cs                  ; DS:SI = expected string (tsr_id)
     mov ds, si
     mov si, tsr_id.contents
-    mov es, bx                  ; ES:DI = actual string
+    mov es, dx                  ; ES:DI = actual string
     mov di, resident_nametag
     mov cx, tsr_id.length       ; CX = number of bytes to compare
     rep cmpsb
     jne .not_us
 
     ; We found our TSR!
-    ; No need to set any return registers, because our TSR should have
-    ; already set AL = non-zero and ES = resident segment.
+    ; Our return registers should already be populated at this point, because
+    ; the TSR multiplex handler sets AL = non-zero and DX = resident segment.
     jmp .ret
 
     .unoccupied:
     .not_us:
-    xor cx, cx      ; Set ES = 0 to indicate our TSR is not installed here
-    mov es, cx
+    xor dx, dx      ; Set DX = 0 to indicate our TSR is not installed here
 
     .ret:
     pop si
+    pop es
     pop ds
     pop di
     pop bx
@@ -460,7 +458,7 @@ end_wstring
 ;-------------------------------------------------------------------------------
 ; TSR multiplex handler (int 2Fh)
 ;
-; Returns the resident code segment in ES and the TSR nametag in ES:DI.
+; Sets AL to a non-zero value and returns BX = the resident code segment.
 ;-------------------------------------------------------------------------------
 int_2fh_handler:
 begin_wstring
@@ -472,6 +470,6 @@ begin_wstring
 
     ; Identify ourselves
     mov al, 0ffh        ; Indicate installed status
-    mov bx, cs          ; Return CS so caller can verify CS:resident_nametag
+    mov dx, cs          ; Return CS so caller can verify CS:resident_nametag
     iret
 end_wstring
