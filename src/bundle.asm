@@ -2,6 +2,7 @@
 %ifndef BUNDLE_ASM
 %define BUNDLE_ASM
 
+%include "macros.asm"
 %include "string.asm"
 
 ;-------------------------------------------------------------------------------
@@ -20,6 +21,34 @@ bundle_keys:
     .font:      db_wstring FONT_KEY
     .blink:     db_wstring BLINK_KEY
     db 0
+
+
+;-------------------------------------------------------------------------------
+; Appended data
+;-------------------------------------------------------------------------------
+section .append
+
+; Set up data header and save its address
+db DATA_HEADER
+start_of_bundle:
+
+; Minor hack: initialize the .COM file with some palette data.
+; In the future, we won't do this.
+db_wstring PALETTE_KEY
+begin_wstring
+    incbin "../goodies/palettes/rgb332.pal"
+end_wstring
+db_wstring FONT_KEY
+begin_wstring
+    incbin "../goodies/fonts/fixed.f14"
+end_wstring
+db_wstring BLINK_KEY
+begin_wstring
+    db 0
+end_wstring
+
+; Terminate the data bundle
+dw 0
 
 
 ;-------------------------------------------------------------------------------
@@ -42,105 +71,73 @@ section .text
 
 ; Reads bundled data from end of .COM file into BSS structs.
 ;
-; Returns AX=1 on success, AX=0 on failure.
+; Sets CF on failure.
 parse_bundled_data:
+    push bx
     push si
     push di
 
     ; Before we parse the bundle, make sure the overall structure is valid.
     call validate_bundle_structure
-    cmp ax, 0
-    je .failure
+    jc .failure
 
     ; Loop over each key-value pair in the bundle
     mov si, start_of_bundle
-    .loop:
-        cmp [si], word 0    ; Stop at the end of the list
-        je .break
+    while_condition
+        cmp word [si], 0    ; Empty string signals end of list
+    begin_while ne
+        mov bx, si          ; SI = key
+        next_wstring bx     ; BX = value
 
-        ; Check against each of the possible keys
-        ; TODO: Maybe a separate parse loop that sets AX = bundle_keys.foo?
-        mov di, bundle_keys.palette ; PALETTE
-        call try_strip_key_prefix
-        je .palette_key
-        mov di, bundle_keys.font    ; FONT
-        call try_strip_key_prefix
-        je .font_key
-        mov di, bundle_keys.blink   ; BLINK
-        call try_strip_key_prefix
-        je .blink_key
-        jmp .failure                ; Unrecognized key
+        mov di, bundle_keys.palette
+        call cmp_wstring
+        begin_if e
+            ; TODO: Validate that all values are in range 0-63
+            cmp word [bx], 3*16     ; Make sure we have exactly 16 colors
+            jne .failure
+            mov [parsed_bundle.palette], bx
+        else
+        mov di, bundle_keys.font
+        call cmp_wstring
+        if e
+            mov cx, [bx]
+            cmp cl, 0       ; Make sure font is a multiple of 256 bytes
+            jne .failure
+            cmp ch, 1       ; Make sure 1 <= font height <= 32
+            jb .failure
+            cmp ch, 32
+            ja .failure
+            mov [parsed_bundle.font], bx
+        else
+        mov di, bundle_keys.blink
+        call cmp_wstring
+        if e
+            cmp word [bx], 1    ; Make sure our boolean is exactly 1 byte
+            jne .failure
+            mov [parsed_bundle.blink], bx
+        else
+            ; Key not recognized
+            jmp .failure
+        end_if
 
-        ; Load palette data
-        .palette_key:
-        cmp [si], word 3*16             ; Make sure we have exactly 16 colors
-        jne .failure
-        mov [parsed_bundle.palette], si
-        jmp .continue
-
-        ; Load font data
-        .font_key:
-        mov cx, [si]
-        cmp cl, 0       ; Make sure font is a multiple of 256 bytes
-        jne .failure
-        cmp ch, 1       ; Make sure 1 <= font height <= 32
-        jb .failure
-        cmp ch, 32
-        ja .failure
-        mov [parsed_bundle.font], si
-        jmp .continue
-
-        ; Load blink boolean
-        .blink_key:
-        cmp [si], word 1        ; Make sure our boolean is exactly 1 byte
-        jne .failure
-        mov [parsed_bundle.blink], si
-
-        .continue:
-        next_wstring si ; Advance to the next key-value pair
-    jmp .loop
-    .break:
+        ; Advance SI to point to the next key
+        mov si, bx          ; SI = value
+        next_wstring si     ; SI = key following that value
+    end_while
 
     ; Bundle parsed successfully!
-    .success:
-    mov ax, 1
+    clc
     jmp .ret
 
     ; Something about the bundle was bad
     .failure:
-    xor ax, ax
+    stc
 
     .ret:
     pop si
     pop di
+    pop bx
     ret
-
-
-;-------------------------------------------------------------------------------
-; Appended data
-;-------------------------------------------------------------------------------
-section .append
-
-; Set up data header and save its address
-db DATA_HEADER
-start_of_bundle:
-
-; Minor hack: initialize the .com file with some palette data.
-; In the future, we won't do this.
-begin_wstring
-    db PALETTE_KEY, "="
-    incbin "../goodies/palettes/rgb332.pal"
-end_wstring
-begin_wstring
-    db FONT_KEY, "="
-    incbin "../goodies/fonts/fixed.f14"
-end_wstring
-begin_wstring
-    db BLINK_KEY, "=", 0
-end_wstring
-
-; Terminate the data bundle
-dw 0
 
 
 ;-------------------------------------------------------------------------------
@@ -148,81 +145,49 @@ dw 0
 ;-------------------------------------------------------------------------------
 section .text
 
-; Returns AX = 1 if the bundled data has a valid structure, AX = 0 otherwise.
+; Check bundle to make sure it has a valid structure.
+;
+; This function only checks the overall structure, making sure the bundle fits
+; in the allotted space and that every key has a corresponding value. It does
+; not validate the keys and values themselves, though.
+;
+; Sets CF if bundle structure is invalid.
 validate_bundle_structure:
     push bx
     push si
 
     ; Validate the list structure to make sure that it's both
     ; properly formed and not too long.
-    mov si, start_of_bundle
-    .loop:
-        cmp [si], word 0            ; Loop until we hit the end of the list
-        je .break
-        mov bx, si                  ; BX = old string, SI = next string
+    xor cx, cx              ; CX = number of list items
+    mov si, start_of_bundle ; SI = pointer to current list item
+    while_condition
+        cmp word [si], 0    ; Loop until we hit the list terminator
+    begin_while ne
+        ; Advance SI to point to the next string
+        mov bx, si          ; BX = old value of pointer
         next_wstring si
-        cmp si, bx                  ; Make sure we moved forward relative to
-        jbe .invalid                ; BX, and that we didn't wrap around.
-        cmp si, section..bss.start  ; Make sure we didn't hit the BSS section.
-        jae .invalid
-    jmp .loop
-    .break:
+        inc cx              ; Count number of list items
 
-    ; We reached the end of the list without finding any structural issues
-    mov ax, 1
-    jmp .ret
+        ; Make sure that we didn't advance so far that we wrapped around
+        cmp si, bx
+        jbe .invalid
+
+        ; Make sure that we didn't hit the BSS section
+        cmp si, section..bss.start
+        jae .invalid
+    end_while
+
+    ; Make sure that each key in the list has a corresponding value
+    and cl, 1       ; If CX is even, return successful (CF = 0).
+    jz .ret         ; We don't need `clc` because `and` already clears CF.
 
     ; Something's wrong with the bundle
     .invalid:
-    xor ax, ax
+    stc
 
     .ret:
     pop si
     pop bx
-    ret
-
-
-; Removes "KEY=" from a key-value string, but only if it matches the given key.
-;
-; SI = wstring of a key-value pair, e.g., "FOO=123"
-; DI = wstring of a key to compare against, e.g., "FOO"
-; If keys match, returns ZF = 1 and mutated string in SI.
-; If they don't, returns ZF = 0 and leaves SI alone.
-try_strip_key_prefix:
-    push di
-    push si
-
-    ; Get lengths of the two input strings
-    mov ax, [si]        ; AX = length of key-value pair
-    mov cx, [di]        ; CX = length of key to compare with
-    cmp ax, cx
-    jbe .no_match       ; Key-value pair is too short to contain key + '='
-
-    ; Verify that key-value pair starts with our key
-    add si, 2           ; Skip past wstring and
-    add di, 2           ; wstring length headers
-    repe cmpsb
-    jne .no_match       ; Keys don't match
-    cmp byte [si], '='
-    jne .no_match       ; Key not terminated with delimiter '='
-
-    ; Keys match: remove key prefix from the start of the wstring
-    pop si              ; Restore old pointers
-    pop di
-    mov cx, [di]
-    inc cx              ; CX = length of key + '='
-    mov ax, [si]
-    sub ax, cx          ; AX = new length of wstring
-    add si, cx          ; Mutate SI to remove prefix and
-    mov [si], ax        ; write new length header
-    xor ax, ax          ; Set ZF=1 (keys matched)
-    ret
-
-    ; Keys didn't match: return ZF=0
-    .no_match:
-    pop si
-    pop di
-    cmp si, di          ; Set ZF=0 (inputs should never match)
     ret
 
 

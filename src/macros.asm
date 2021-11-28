@@ -123,15 +123,15 @@
     %assign loop_id loop_id_counter
 
     ; Update common label names
-    %define break loop_%[loop_id]_break
-    %define continue loop_%[loop_id]_continue
+    %define break ..@loop_%[loop_id]_break
+    %define continue ..@loop_%[loop_id]_continue
 %endmacro
 
 ; Revert break/continue to whatever
 %macro pop_loop_context 0
     %assign loop_id loop_%[loop_id]_parent
-    %define break loop_%[loop_id]_break
-    %define continue loop_%[loop_id]_continue
+    %define break ..@loop_%[loop_id]_break
+    %define continue ..@loop_%[loop_id]_continue
 
     ; Clean up defines if no parent loop exists
     %if loop_id = 0

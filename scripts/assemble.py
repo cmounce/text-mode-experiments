@@ -15,7 +15,7 @@ parser = argparse.ArgumentParser(
 )
 parser.add_argument(
     "base_file", type=argparse.FileType("rb"), metavar="BASE-FILE",
-    help="an existing .com file to copy program code from"
+    help="an existing .COM file to copy program code from"
 )
 parser.add_argument(
     "-p", "--palette", type=argparse.FileType("rb"),
@@ -36,15 +36,15 @@ parser.add_argument(
 parser.set_defaults(blink=None)
 parser.add_argument(
     "-o", "--output", type=argparse.FileType("wb"), required=True,
-    help="destination of customized .com file"
+    help="destination of customized .COM file"
 )
 args = parser.parse_args()
 
-# Read base .com file
+# Read base .COM file
 com_data = args.base_file.read()
 header_index = com_data.index(DATA_HEADER)
 if header_index == -1:
-    raise ValueError(f"{args.base_file.name} is not a valid base .com file")
+    raise ValueError(f"{args.base_file.name} is not a valid base .COM file")
 program_code = com_data[:header_index]
 
 # Build config based on command-line options
@@ -65,9 +65,10 @@ if args.blink is not None:
 # Generate output TSR
 parts = [program_code, DATA_HEADER]
 for k, v in config.items():
-    line = b"".join([k, b"=", v])
-    parts.append(struct.pack("<H", len(line)))
-    parts.append(line)
+    parts.append(struct.pack("<H", len(k)))
+    parts.append(k)
+    parts.append(struct.pack("<H", len(v)))
+    parts.append(v)
 parts.append(b"\x00\x00")
 result = b"".join(parts)
 args.output.write(result)

@@ -99,7 +99,6 @@ build_new_bundle:
         add di, 2                               ; DI = contents of string
         lea si, [bundle_keys.palette + 2]       ; SI = "PALETTE" raw bytes
         rep movsb
-        ; TODO: Refactor bundle to not use '='
         pop di
         next_wstring di
 

@@ -92,6 +92,30 @@ concat_wstring:
 
     ret
 
+
+;-------------------------------------------------------------------------------
+; Performs a case-sensitive comparison of SI and DI.
+;
+; Sets ZF = 0 if the two strings are equal.
+;-------------------------------------------------------------------------------
+cmp_wstring:
+    push di
+    push si
+
+    ; Compare sizes
+    mov cx, [si]
+    cmp cx, [di]
+    jne .ret
+
+    ; Compare the next CX characters
+    repe cmpsb
+
+    .ret:
+    pop si
+    pop di
+    ret
+
+
 ;-------------------------------------------------------------------------------
 ; Performs a case-insensitive comparison of SI and DI.
 ;

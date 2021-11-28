@@ -37,8 +37,7 @@ main:
 
     ; Parse/validate the data bundle at the end of the .COM file
     call parse_bundled_data
-    cmp ax, 0
-    begin_if e
+    begin_if c
         ; TODO: Should this move into the parse_bundled_data function?
         die EXIT_BAD_BUNDLE, "Bundled data is corrupt"
     end_if
