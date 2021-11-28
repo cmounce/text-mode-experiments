@@ -96,17 +96,15 @@ parse_command_line:
     cmp word [subcommand_arg], 0
 
     ; Consume all remaining arguments
-    jmp .loop_condition
-    .loop:
+    while_condition
+        cmp word [si], 0
+    begin_while ne
         call parse_argument
         cmp ax, 0
         begin_if e
             die EXIT_BAD_ARGS, "Unknown argument: ", si
         end_if
-
-        .loop_condition:
-        cmp word [si], 0
-        jne .loop
+    end_while
 
     pop si
     ret
@@ -128,20 +126,19 @@ tokenize_arg_string:
     mov di, arg_tokens              ; DI = token list to write to
 
     ; Loop over each char in the arg string
-    .for_each:
-        cmp bl, 0
-        je .break
-        dec bl
-
+    while_condition
+        cmp bl, 0       ; Loop while we have characters remaining
+    begin_while ne
         ; Read next character into AL
         lodsb
+        dec bl
 
         ; Whitespace and '=' are never included in tokens.
         ; If we see these, skip the character and start a new token.
         call is_token_separator
         begin_if e
             call .flush_current_token
-            jmp .for_each
+            jmp continue
         end_if
 
         ; Forward slashes always indicate the start of a new token.
@@ -152,9 +149,7 @@ tokenize_arg_string:
 
         ; Append the character to the current token in DI.
         call concat_byte_wstring
-
-        jmp .for_each
-    .break:
+    end_while
 
     ; Terminate the list if it isn't terminated already
     call .flush_current_token
@@ -204,23 +199,25 @@ parse_subcommand:
     push di
 
     mov di, subcommands             ; Loop DI = each possible subcommand
-    .for_each:
+    while_condition
         cmp word [di], 0            ; Break if we run out of subcommands
-        je .not_found
-
+    begin_while ne
         call icmp_wstring           ; If SI == DI, this is a full subcommand.
         je .found
-        call is_short_subcommand    ; If the first letters of SI and DI match,
+        call icmp_short_subcommand  ; If the first letters of SI and DI match,
         je .found                   ; this is an abbreviated subcommand.
 
         next_wstring di             ; Otherwise, advance DI to the next one.
-        jmp .for_each
+    end_while
+
+    ; No matches for subcommand found
+    jmp .ret
 
     .found:
     mov [subcommand_arg], di        ; SI is a valid subcommand. Record it and
     next_wstring si                 ; advance to the next token.
 
-    .not_found:
+    .ret:
     pop di
     ret
 
@@ -229,13 +226,13 @@ parse_subcommand:
 ;
 ; Examples: "i" or "I" would match "install", but "x" or "inst" would not.
 ; Returns ZF = 0 if there's a match, nonzero otherwise.
-is_short_subcommand:
+icmp_short_subcommand:
     cmp word [si], 1            ; Is the input string one character long?
     jne .ret
-    mov al, [si+2]              ; Get the only character of SI
+    mov al, [si + 2]            ; Get the only character of SI
     call tolower_accumulator
     mov ah, al
-    mov al, [di+2]              ; Get first character of DI
+    mov al, [di + 2]            ; Get first character of DI
     call tolower_accumulator
     cmp ah, al                  ; Do a case-insensitive comparison
     .ret:
@@ -287,6 +284,7 @@ parse_flag:
     .ret:
     pop di
     ret
+
 
 ; Tries to consume a 2-token option from SI, e.g., "/foo=bar"
 ;
