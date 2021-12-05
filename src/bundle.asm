@@ -13,13 +13,15 @@ section .data
 %define DATA_HEADER " START OF DATA:"
 %define PALETTE_KEY "PALETTE"
 %define FONT_KEY "FONT"
+%define SECONDARY_FONT_KEY "FONT2"
 %define BLINK_KEY "BLINK"
 
 ; Define a list of all the valid keys
 bundle_keys:
-    .palette:   db_wstring PALETTE_KEY
-    .font:      db_wstring FONT_KEY
     .blink:     db_wstring BLINK_KEY
+    .font:      db_wstring FONT_KEY
+    .font2:     db_wstring SECONDARY_FONT_KEY
+    .palette:   db_wstring PALETTE_KEY
     db 0
 
 
@@ -42,6 +44,10 @@ db_wstring FONT_KEY
 begin_wstring
     incbin "../goodies/fonts/fixed.f14"
 end_wstring
+db_wstring SECONDARY_FONT_KEY
+begin_wstring
+    incbin "../legacy/megazeux.chr"
+end_wstring
 db_wstring BLINK_KEY
 begin_wstring
     db 0
@@ -59,9 +65,10 @@ section .bss
 ; Output of parse_bundled_data: the values for each key in the bundle.
 ; These are each pointers to wstrings, or null if not present.
 parsed_bundle:
-    .palette:       resw 1
-    .font:          resw 1
     .blink:         resw 1
+    .font:          resw 1
+    .font2:         resw 1
+    .palette:       resw 1
 
 
 ;-------------------------------------------------------------------------------
@@ -108,6 +115,20 @@ parse_bundled_data:
             cmp ch, 32
             ja .failure
             mov [parsed_bundle.font], bx
+        else
+        mov di, bundle_keys.font2
+        call cmp_wstring
+        if e
+            ; TODO: Deduplicate length checking
+            ; TODO: Verify that fonts are same height
+            mov cx, [bx]
+            cmp cl, 0       ; Make sure font is a multiple of 256 bytes
+            jne .failure
+            cmp ch, 1       ; Make sure 1 <= font height <= 32
+            jb .failure
+            cmp ch, 32
+            ja .failure
+            mov [parsed_bundle.font2], bx
         else
         mov di, bundle_keys.blink
         call cmp_wstring
