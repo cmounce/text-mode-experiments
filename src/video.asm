@@ -82,6 +82,13 @@ _concat_video_code_wstring:
         call concat_wstring
     end_if
 
+    ; If there are two fonts, append the secondary font code
+    cmp word [parsed_bundle.font2], 0
+    begin_if ne
+        mov si, _font2_code
+        call concat_wstring
+    end_if
+
     ; Append blink-vs-intensity code
     cmp [parsed_bundle.blink], word 0
     begin_if ne
@@ -115,6 +122,24 @@ concat_video_data_wstring:
 
     ; Copy font data
     mov si, [parsed_bundle.font]
+    cmp si, 0
+    begin_if ne
+        mov ax, [si]                ; AX = number of bytes in font
+        mov al, ah                  ; AL = pixel height of font
+        call concat_byte_wstring    ; Write height of font
+        call concat_wstring         ; Write SI = actual font data
+
+        ; Copy secondary font data
+        mov si, [parsed_bundle.font2]
+        cmp si, 0
+        begin_if ne
+            mov ax, [si]                ; AX = number of bytes in font
+            mov al, ah                  ; AL = pixel height of font
+            call concat_byte_wstring    ; Write height of font
+            call concat_wstring         ; Write SI = actual font data
+        end_if
+    end_if
+
     cmp si, 0
     je .skip_font
     mov ax, [si]                ; AX = number of bytes in font
@@ -212,6 +237,49 @@ begin_wstring
     mov bp, ds      ; Set ES:BP to our font data (DS:SI)
     mov es, bp
     mov bp, si
+    int 10h
+
+    ; Advance data pointer
+    mov ax, si
+    add ah, bh  ; AX += 256*height
+    mov si, ax
+
+    pop es
+    pop bx
+    pop bp
+end_wstring
+
+
+;-------------------------------------------------------------------------------
+; Load a secondary font from the given font data
+;
+; Takes a pointer DS:SI to font data.
+; Expects the first byte of data to represent the font height, to be followed
+; by height*256 bytes worth of bitmap data.
+; Advances SI to point just past the end of the video data.
+;-------------------------------------------------------------------------------
+_font2_code:
+begin_wstring
+    ; TODO: A single code block that loads 2 fonts would save resident memory
+    push bp
+    push bx
+    push es
+
+    ; Set font
+    mov ax, 1110h   ; Load font data
+    mov bl, 1       ; BL = table to load into (primary = 0, secondary = 1)
+    mov bh, [si]    ; Read BH = height of font, advancing data pointer
+    inc si
+    mov cx, 256     ; CX = number of characters to write
+    xor dx, dx      ; DX = first character to write
+    mov bp, ds      ; Set ES:BP to our font data (DS:SI)
+    mov es, bp
+    mov bp, si
+    int 10h
+
+    ; Set font pointers to point to two different blocks
+    mov ax, 1103h
+    mov bl, 04h     ; Bit pattern to point A -> 0 and B -> 1
     int 10h
 
     ; Advance data pointer
