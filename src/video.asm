@@ -1,12 +1,13 @@
-;; Routines for setting font, palette, etc.
+; Routines for setting font, palette, etc.
 %include 'macros.asm'
 %include 'string.asm'
 
-;===============================================================================
-; Non-resident code
+;-------------------------------------------------------------------------------
+; Helpers for changing video mode from non-resident code
 ;-------------------------------------------------------------------------------
 section .text
 
+; Set video mode as specified by the bundle
 preview_mode:
     push di
     push si
@@ -19,7 +20,7 @@ preview_mode:
     call concat_video_data_wstring          ; Write data
     next_wstring di                         ; New string
     mov [di], word 0
-    call _concat_video_code_wstring         ; Write code
+    call concat_video_code_wstring          ; Write code
     mov si, .ret_code                       ; Write ret to end of code
     call concat_wstring
 
@@ -38,87 +39,52 @@ preview_mode:
         ret
     end_wstring
 
+
+; Reset video mode
+reset_video:
+    ; TODO: Get the original video mode and store it somewhere, so we can
+    ; return to the exact same settings (resolution, 8-vs-9 dot, etc)?
+    ; Probably just a call to int 10, AH=1B
+    mov ax, 0003h
+    int 10h
+    ret
+
+
 ;-------------------------------------------------------------------------------
+; Functions for constructing resident code/data blobs
+;-------------------------------------------------------------------------------
+
 ; Append resident font/palette code to the wstring in DI.
 ;
 ; This code looks for video data starting at resident_data, which means in most
 ; cases this code cannot be executed directly: the TSR must be installed first.
+; TODO: make the TSR code responsible for setting SI = resident_data
 ;
 ; The generated code clobbers SI when run (though this function doesn't).
-;-------------------------------------------------------------------------------
 concat_resident_video_code_wstring:
     push si
 
     ; Append header: initialize SI = resident data
-    mov si, _initialize_si_code
+    mov si, initialize_si_code
     call concat_wstring
 
     ; Append main video code
-    call _concat_video_code_wstring
+    call concat_video_code_wstring
 
     pop si
     ret
 
 
-;-------------------------------------------------------------------------------
-; Append video code to the wstring in DI.
-;
-; The generated code will look for font/palette data in the SI register.
-;-------------------------------------------------------------------------------
-_concat_video_code_wstring:
-    push si
-
-    ; Append palette-setting code
-    cmp [parsed_bundle.palette], word 0
-    begin_if ne
-        mov si, _palette_code
-        call concat_wstring
-    end_if
-
-    ; Append font-setting code
-    cmp [parsed_bundle.font], word 0
-    begin_if ne
-        mov si, _font_code
-        call concat_wstring
-    end_if
-
-    ; If there are two fonts, append the secondary font code
-    cmp word [parsed_bundle.font2], 0
-    begin_if ne
-        mov si, _font2_code
-        call concat_wstring
-    end_if
-
-    ; Append blink-vs-intensity code
-    cmp [parsed_bundle.blink], word 0
-    begin_if ne
-        mov si, [parsed_bundle.blink]   ; Get blink string and interpret its
-        cmp [si + 2], byte 0            ; first byte as a boolean (0 = false)
-        begin_if e
-            mov si, _blink_off_code     ; SI = code to disable blinking
-        else
-            mov si, _blink_on_code      ; SI = code to enable blinking
-        end_if
-
-        call concat_wstring             ; Append the appropriate code to result
-    end_if
-
-    pop si
-    ret
-
-
-;-------------------------------------------------------------------------------
 ; Append resident font/palette data to the wstring in DI.
-;-------------------------------------------------------------------------------
 concat_video_data_wstring:
     push si
 
     ; Copy palette data
     mov si, [parsed_bundle.palette]
     cmp si, 0
-    je .skip_palette
-    call concat_wstring
-    .skip_palette:
+    begin_if ne
+        call concat_wstring
+    end_if
 
     ; Copy font data
     mov si, [parsed_bundle.font]
@@ -140,49 +106,71 @@ concat_video_data_wstring:
         end_if
     end_if
 
-    cmp si, 0
-    je .skip_font
-    mov ax, [si]                ; AX = number of bytes in font
-    mov al, ah
-    call concat_byte_wstring    ; Concat AL = pixel height of font
-    call concat_wstring         ; Concat SI = actual font data
-    .skip_font:
-
     pop si
     ret
 
 
 ;-------------------------------------------------------------------------------
-; Reset video mode
+; Internal helpers and code fragments
 ;-------------------------------------------------------------------------------
-reset_video:
-    ; TODO: Get the original video mode and store it somewhere, so we can
-    ; return to the exact same settings (resolution, 8-vs-9 dot, etc)?
-    ; Probably just a call to int 10, AH=1B
-    mov ax, 0003h
-    int 10h
+
+; Append video code to the wstring in DI.
+;
+; The generated code will look for font/palette data in the SI register.
+concat_video_code_wstring:
+    push si
+
+    ; Append palette-setting code
+    cmp [parsed_bundle.palette], word 0
+    begin_if ne
+        mov si, palette_code
+        call concat_wstring
+    end_if
+
+    ; Append font-setting code
+    cmp [parsed_bundle.font], word 0
+    begin_if ne
+        mov si, font_code
+        call concat_wstring
+    end_if
+
+    ; If there are two fonts, append the secondary font code
+    cmp word [parsed_bundle.font2], 0
+    begin_if ne
+        mov si, font2_code
+        call concat_wstring
+    end_if
+
+    ; Append blink-vs-intensity code
+    cmp [parsed_bundle.blink], word 0
+    begin_if ne
+        mov si, [parsed_bundle.blink]   ; Get blink string and interpret its
+        cmp [si + 2], byte 0            ; first byte as a boolean (0 = false)
+        begin_if e
+            mov si, blink_off_code      ; SI = code to disable blinking
+        else
+            mov si, blink_on_code       ; SI = code to enable blinking
+        end_if
+
+        call concat_wstring             ; Append the appropriate code to result
+    end_if
+
+    pop si
     ret
 
 
-;===============================================================================
-; Resident code
-;-------------------------------------------------------------------------------
-
-;-------------------------------------------------------------------------------
 ; Sets SI to point to the resident_data label.
-;-------------------------------------------------------------------------------
-_initialize_si_code:
+initialize_si_code:
 begin_wstring
     mov si, resident_data
 end_wstring
 
-;-------------------------------------------------------------------------------
+
 ; Set text-mode palette to the given 16 color palette.
 ;
 ; Takes a pointer DS:SI to palette data.
 ; Advances SI to point just past the end of the palette data.
-;-------------------------------------------------------------------------------
-_palette_code:
+palette_code:
 begin_wstring
     push bx
     push es
@@ -211,18 +199,17 @@ begin_wstring
     add si, 3*16    ; Advance past all palette data
 end_wstring
 
-;-------------------------------------------------------------------------------
+
 ; Set font to the given font data
 ;
 ; Takes a pointer DS:SI to font data.
 ; Expects the first byte of data to represent the font height, to be followed
 ; by height*256 bytes worth of bitmap data.
 ; Advances SI to point just past the end of the video data.
-;-------------------------------------------------------------------------------
-_font_code:
+font_code:
 begin_wstring
     ; TODO: Save several bytes by consolidating most of the register-saving
-    ; code into a prefix/suffix shared by _palette_code, _font_code, etc.
+    ; code into a prefix/suffix shared by palette_code, font_code, etc.
     push bp
     push bx
     push es
@@ -250,15 +237,13 @@ begin_wstring
 end_wstring
 
 
-;-------------------------------------------------------------------------------
 ; Load a secondary font from the given font data
 ;
 ; Takes a pointer DS:SI to font data.
 ; Expects the first byte of data to represent the font height, to be followed
 ; by height*256 bytes worth of bitmap data.
 ; Advances SI to point just past the end of the video data.
-;-------------------------------------------------------------------------------
-_font2_code:
+font2_code:
 begin_wstring
     ; TODO: A single code block that loads 2 fonts would save resident memory
     push bp
@@ -279,7 +264,7 @@ begin_wstring
 
     ; Set font pointers to point to two different blocks
     mov ax, 1103h
-    mov bl, 04h     ; Bit pattern to point A -> 0 and B -> 1
+    mov bl, 04h     ; Bit pattern to point A -> 1 and B -> 0
     int 10h
 
     ; Advance data pointer
@@ -293,10 +278,8 @@ begin_wstring
 end_wstring
 
 
-;-------------------------------------------------------------------------------
 ; Enable blinking colors
-;-------------------------------------------------------------------------------
-_blink_on_code:
+blink_on_code:
 begin_wstring
     push bx
     mov ax, 1003h   ; Set blink/intensity
@@ -306,10 +289,8 @@ begin_wstring
 end_wstring
 
 
-;-------------------------------------------------------------------------------
 ; Disable blinking colors/enable high intensity
-;-------------------------------------------------------------------------------
-_blink_off_code:
+blink_off_code:
 begin_wstring
     push bx
     mov ax, 1003h   ; Set blink/intensity
