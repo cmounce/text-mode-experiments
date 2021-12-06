@@ -22,11 +22,11 @@ bundle_keys:
     .font:      db_wstring FONT_KEY
     .font2:     db_wstring SECONDARY_FONT_KEY
     .palette:   db_wstring PALETTE_KEY
-    db 0
+    dw 0        ; Terminate the list of keys
 
 
 ;-------------------------------------------------------------------------------
-; Appended data
+; Bundled data
 ;-------------------------------------------------------------------------------
 section .append
 
@@ -58,7 +58,7 @@ dw 0
 
 
 ;-------------------------------------------------------------------------------
-; Parsed data
+; Data parsed from the bundle
 ;-------------------------------------------------------------------------------
 section .bss
 
@@ -80,71 +80,46 @@ section .text
 ;
 ; Sets CF on failure.
 parse_bundled_data:
-    push bx
     push si
-    push di
 
     ; Before we parse the bundle, make sure the overall structure is valid.
     call validate_bundle_structure
     jc .failure
 
     ; Loop over each key-value pair in the bundle
-    mov si, start_of_bundle
-    while_condition
-        cmp word [si], 0    ; Empty string signals end of list
-    begin_while ne
-        mov bx, si          ; SI = key
-        next_wstring bx     ; BX = value
+    call load_values_from_bundle
+    jc .failure
 
-        mov di, bundle_keys.palette
-        call cmp_wstring
-        begin_if e
-            ; TODO: Validate that all values are in range 0-63
-            cmp word [bx], 3*16     ; Make sure we have exactly 16 colors
-            jne .failure
-            mov [parsed_bundle.palette], bx
-        else
-        mov di, bundle_keys.font
-        call cmp_wstring
-        if e
-            mov cx, [bx]
-            cmp cl, 0       ; Make sure font is a multiple of 256 bytes
-            jne .failure
-            cmp ch, 1       ; Make sure 1 <= font height <= 32
-            jb .failure
-            cmp ch, 32
-            ja .failure
-            mov [parsed_bundle.font], bx
-        else
-        mov di, bundle_keys.font2
-        call cmp_wstring
-        if e
-            ; TODO: Deduplicate length checking
-            ; TODO: Verify that fonts are same height
-            mov cx, [bx]
-            cmp cl, 0       ; Make sure font is a multiple of 256 bytes
-            jne .failure
-            cmp ch, 1       ; Make sure 1 <= font height <= 32
-            jb .failure
-            cmp ch, 32
-            ja .failure
-            mov [parsed_bundle.font2], bx
-        else
-        mov di, bundle_keys.blink
-        call cmp_wstring
-        if e
-            cmp word [bx], 1    ; Make sure our boolean is exactly 1 byte
-            jne .failure
-            mov [parsed_bundle.blink], bx
-        else
-            ; Key not recognized
-            jmp .failure
-        end_if
+    ; Make sure that each value (if it exists) is valid
+    ; Palette
+    mov si, [parsed_bundle.palette]
+    cmp si, 0
+    begin_if ne
+        call validate_palette_wstring
+        jc .failure
+    end_if
 
-        ; Advance SI to point to the next key
-        mov si, bx          ; SI = value
-        next_wstring si     ; SI = key following that value
-    end_while
+    ; Font
+    mov si, [parsed_bundle.font]
+    cmp si, 0
+    begin_if ne
+        call validate_font_wstring
+        jc .failure
+    end_if
+    mov si, [parsed_bundle.font2]
+    cmp si, 0
+    begin_if ne
+        call validate_font_wstring
+        jc .failure
+    end_if
+
+    ; Blink flag
+    mov si, [parsed_bundle.blink]
+    cmp si, 0
+    begin_if ne
+        cmp word [si], 1    ; Make sure our boolean is exactly 1 byte
+        jne .failure
+    end_if
 
     ; Bundle parsed successfully!
     clc
@@ -156,9 +131,61 @@ parse_bundled_data:
 
     .ret:
     pop si
-    pop di
-    pop bx
     ret
+
+
+; Checks the given wstring to see if it is a valid font.
+;
+; Takes SI as the address of the wstring to check.
+; Sets CF if the wstring fails validation, clears CF otherwise.
+validate_font_wstring:
+    mov cx, [si]    ; CX = length of wstring
+    cmp cl, 0       ; Make sure font data is a multiple of 256 bytes
+    jne .failure
+    cmp ch, 1       ; Make sure 1 <= font height <= 32
+    jb .failure
+    cmp ch, 32
+    ja .failure
+
+    ; Return success
+    clc
+    ret
+
+    .failure:
+    stc
+    ret
+
+
+; Checks the given wstring to see if it is a valid color palette.
+;
+; Takes SI as the address of the wstring to check.
+; Sets CF if the wstring fails validation, clears CF otherwise.
+validate_palette_wstring:
+    push si
+
+    ; Make sure the palette has exactly 16 colors
+    cmp word [si], 3*16 ; Each color occupies 3 bytes
+    jne .failure
+
+    ; Make sure all RGB values are in the range 0-63
+    mov cx, 3*16        ; CX = number of channel values
+    add si, 2           ; SI = start of wstring data
+    .loop:
+        lodsb           ; AL = channel value
+        cmp al, 63      ; Reject if channel is not a 6-bit quantity
+        ja .failure
+    loop .loop
+
+    ; All RGB values checked: return success
+    clc
+
+    .ret:
+    pop si
+    ret
+
+    .failure:
+    stc
+    jmp .ret
 
 
 ;-------------------------------------------------------------------------------
@@ -170,7 +197,7 @@ section .text
 ;
 ; This function only checks the overall structure, making sure the bundle fits
 ; in the allotted space and that every key has a corresponding value. It does
-; not validate the keys and values themselves, though.
+; not validate the keys and values themselves.
 ;
 ; Sets CF if bundle structure is invalid.
 validate_bundle_structure:
@@ -208,6 +235,78 @@ validate_bundle_structure:
 
     .ret:
     pop si
+    pop bx
+    ret
+
+
+; Sets pointers in parsed_bundle to point to their values in the bundled data.
+;
+; Sets CF on failure.
+load_values_from_bundle:
+    push si
+
+    ; Loop through every key-value pair in the bundle
+    mov si, start_of_bundle ; SI = first key in bundle
+    while_condition
+        cmp word [si], 0    ; Empty string signals end of key-value pairs
+    begin_while ne
+        ; Consume the next two tokens as a key-value pair
+        call bundle_load_key_value
+        jc .ret             ; On error, forward the error
+    end_while
+
+    ; We recognized every key in the bundle: return success
+    clc
+
+    .ret:
+    pop si
+    ret
+
+
+; Reads a single key-value pair into the corresponding value in parsed_bundle
+;
+; Takes SI = wstring of a key, followed by wstring of a value.
+; Advances SI past both the key and the value.
+; Sets CF on failure.
+bundle_load_key_value:
+    push bx
+    push di
+
+    ; Iterate through our list of keys until we find one matching SI.
+    mov di, bundle_keys     ; DI = key to compare SI against
+    mov bx, parsed_bundle   ; BX = where the corresponding value would go
+    while_condition
+        cmp word [di], 0    ; While there are still keys in the allowed list
+    begin_while ne
+        ; Check whether SI == DI
+        call cmp_wstring
+        begin_if e
+            ; We found our key!
+            ; Make sure we don't already have a value for this key
+            cmp word [bx], 0
+            jne .failure
+
+            ; Consume the key-value pair, saving the value
+            next_wstring si     ; Consume key, set SI = value
+            mov [bx], si        ; Save pointer to value at BX
+            next_wstring si     ; Consume value
+
+            ; Return success
+            clc
+            jmp .ret
+        end_if
+
+        ; Advance pointers
+        next_wstring di     ; DI = next wstring
+        add bx, 2           ; BX = next pointer in parsed_bundle
+    end_while
+
+    ; Return failure: we checked every key in our list, and SI wasn't on it.
+    .failure:
+    stc
+
+    .ret:
+    pop di
     pop bx
     ret
 
