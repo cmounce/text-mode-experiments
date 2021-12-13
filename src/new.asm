@@ -112,15 +112,11 @@ build_new_bundle:
         mov bx, ax  ; BX = handle
 
         ; Read palette data
-        ; TODO: helper that reads up to a certain number of bytes as a wstring
-        mov ah, 3fh
-        mov cx, 48 + 1
-        lea dx, [di + 2]
-        int 21h
+        mov cx, 48 + 1          ; Read extra byte to detect too-large palettes
+        call read_wstring_from_handle
         begin_if c
             die EXIT_ERROR, "Error reading palette"
         end_if
-        mov [di], ax        ; Write length header
 
         ; Check palette size
         ; TODO: Have a central "validate this wstring"
@@ -144,4 +140,24 @@ build_new_bundle:
     pop si
     pop di
     pop bx
+    ret
+
+
+; Read bytes from a file into a wstring
+;
+; BX = file handle to read from
+; CX = maximum number of bytes to read
+; DI = location to write the wstring
+; Sets CF on failure.
+read_wstring_from_handle:
+    mov ah, 3fh         ; DOS read from handle
+    lea dx, [di + 2]    ; DX = pointer to wstring data
+    int 21h
+    begin_if c
+        ret             ; Error: forward CF to caller
+    end_if
+    mov [di], ax        ; Write actual number of bytes to wstring header
+
+    ; Return successful.
+    ; We don't need `clc` because CF should still be clear from the DOS call.
     ret
