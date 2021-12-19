@@ -315,7 +315,7 @@ _install_and_terminate:
     ; String 3: int 10h handler
     mov si, int_10h_handler_prefix          ; Handler consists of prefix...
     call concat_wstring
-    call concat_resident_video_code_wstring ; video code...
+    call concat_video_code_wstring          ; video code...
     mov si, int_10h_handler_suffix          ; and suffix, all in one wstring.
     call concat_wstring
     append_empty_wstring
@@ -444,6 +444,9 @@ begin_wstring
     push ds         ; Set DS = CS
     mov ax, cs
     mov ds, ax
+
+    ; Finally, tell the video code where the video data lives
+    mov si, resident_data
 end_wstring
     ; Video code goes here...
 int_10h_handler_suffix:

@@ -54,22 +54,47 @@ reset_video:
 ; Functions for constructing resident code/data blobs
 ;-------------------------------------------------------------------------------
 
-; Append resident font/palette code to the wstring in DI.
+; Append video code to the wstring in DI.
 ;
-; This code looks for video data starting at resident_data, which means in most
-; cases this code cannot be executed directly: the TSR must be installed first.
-; TODO: make the TSR code responsible for setting SI = resident_data
-;
-; The generated code clobbers SI when run (though this function doesn't).
-concat_resident_video_code_wstring:
+; The generated code takes SI as a pointer to font/palette data to consume.
+; When run, it will advance the SI register past all of the data it consumed.
+concat_video_code_wstring:
     push si
 
-    ; Append header: initialize SI = resident data
-    mov si, initialize_si_code
-    call concat_wstring
+    ; Append palette-setting code
+    cmp [parsed_bundle.palette], word 0
+    begin_if ne
+        mov si, palette_code
+        call concat_wstring
+    end_if
 
-    ; Append main video code
-    call concat_video_code_wstring
+    ; Append font-setting code
+    cmp [parsed_bundle.font], word 0
+    begin_if ne
+        mov si, font_code
+        call concat_wstring
+    end_if
+
+    ; If there are two fonts, append the secondary font code
+    cmp word [parsed_bundle.font2], 0
+    begin_if ne
+        mov si, font2_code
+        call concat_wstring
+    end_if
+
+    ; Append blink-vs-intensity code
+    cmp [parsed_bundle.blink], word 0
+    begin_if ne
+        mov si, [parsed_bundle.blink]   ; Get blink string and interpret its
+        cmp [si + 2], byte 0            ; first byte as a boolean (0 = false)
+        begin_if e
+            mov si, blink_off_code      ; SI = code to disable blinking
+        else
+            mov si, blink_on_code       ; SI = code to enable blinking
+        end_if
+
+        call concat_wstring             ; Append the appropriate code to result
+    end_if
 
     pop si
     ret
@@ -114,56 +139,7 @@ concat_video_data_wstring:
 ; Internal helpers and code fragments
 ;-------------------------------------------------------------------------------
 
-; Append video code to the wstring in DI.
-;
-; The generated code will look for font/palette data in the SI register.
-concat_video_code_wstring:
-    push si
 
-    ; Append palette-setting code
-    cmp [parsed_bundle.palette], word 0
-    begin_if ne
-        mov si, palette_code
-        call concat_wstring
-    end_if
-
-    ; Append font-setting code
-    cmp [parsed_bundle.font], word 0
-    begin_if ne
-        mov si, font_code
-        call concat_wstring
-    end_if
-
-    ; If there are two fonts, append the secondary font code
-    cmp word [parsed_bundle.font2], 0
-    begin_if ne
-        mov si, font2_code
-        call concat_wstring
-    end_if
-
-    ; Append blink-vs-intensity code
-    cmp [parsed_bundle.blink], word 0
-    begin_if ne
-        mov si, [parsed_bundle.blink]   ; Get blink string and interpret its
-        cmp [si + 2], byte 0            ; first byte as a boolean (0 = false)
-        begin_if e
-            mov si, blink_off_code      ; SI = code to disable blinking
-        else
-            mov si, blink_on_code       ; SI = code to enable blinking
-        end_if
-
-        call concat_wstring             ; Append the appropriate code to result
-    end_if
-
-    pop si
-    ret
-
-
-; Sets SI to point to the resident_data label.
-initialize_si_code:
-begin_wstring
-    mov si, resident_data
-end_wstring
 
 
 ; Set text-mode palette to the given 16 color palette.
