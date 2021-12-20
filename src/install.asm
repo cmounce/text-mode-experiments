@@ -2,7 +2,7 @@
 %include "macros.asm"
 %include "string.asm"
 
-;===============================================================================
+;-------------------------------------------------------------------------------
 ; Constants
 ;-------------------------------------------------------------------------------
 
@@ -18,7 +18,7 @@ tsr_id:
     end_wstring
 
 
-;===============================================================================
+;-------------------------------------------------------------------------------
 ; Resident globals
 ;-------------------------------------------------------------------------------
 
@@ -58,21 +58,19 @@ multiplex_ax:
 resident_data:
 
 
-;===============================================================================
+;-------------------------------------------------------------------------------
 ; Non-resident code
 ;-------------------------------------------------------------------------------
 section .text
 
-;-------------------------------------------------------------------------------
 ; Installs the TSR into memory.
 ;
 ; This routine never returns because it always terminates the process:
 ; - On success, the program terminates and stays resident.
 ; - On failure, the program quits with an error message.
-;-------------------------------------------------------------------------------
 install_tsr:
     ; Get AL = an available multiplex ID
-    call _scan_multiplex_ids
+    call scan_multiplex_ids
     cmp al, 0
     begin_if e
         cmp dx, 0       ; DX will be set if TSR already installed
@@ -89,22 +87,20 @@ install_tsr:
     pop ax
 
     ; Install the TSR
-    jmp _install_and_terminate
+    jmp install_and_terminate
 
 
-;-------------------------------------------------------------------------------
 ; Uninstall the TSR from memory.
-;-------------------------------------------------------------------------------
 uninstall_tsr:
     ; Get DX = TSR's memory segment
-    call _scan_multiplex_ids
+    call scan_multiplex_ids
     cmp dx, 0
     begin_if e
         die EXIT_ERROR, "Nothing to uninstall"
     end_if
 
     ; Attempt to remove TSR from memory
-    call _uninstall_tsr
+    call uninstall_tsr_at_segment
     cmp ax, 0
     begin_if e
         die EXIT_ERROR, "Uninstall failed"
@@ -116,12 +112,14 @@ uninstall_tsr:
 
 
 ;-------------------------------------------------------------------------------
-; Safely remove TSR from memory.
+; Internal helpers
+;-------------------------------------------------------------------------------
+
+; Given the resident code segment, safely remove our TSR from memory.
 ;
 ; DX = Resident segment
 ; Returns AX = 0 on failure, AX = 1 on success.
-;-------------------------------------------------------------------------------
-_uninstall_tsr:
+uninstall_tsr_at_segment:
     push bx
     push ds
     push es
@@ -172,14 +170,12 @@ _uninstall_tsr:
     ret
 
 
-;-------------------------------------------------------------------------------
 ; Checks to see if our TSR is already resident in memory.
 ;
 ; Returns:
 ; - AL = an available multiplex ID, or 0 if TSR cannot be installed
 ; - DX = memory segment of our TSR, or 0 if it is not installed
-;-------------------------------------------------------------------------------
-_scan_multiplex_ids:
+scan_multiplex_ids:
     .MIN_ID equ 0C0h    ; Range of multiplex IDs reserved for applications
     .MAX_ID equ 0FFh
 
@@ -192,7 +188,7 @@ _scan_multiplex_ids:
     begin_do_while
         ; Scan current multiplex ID
         mov ah, bh
-        call _check_single_multiplex_id
+        call check_single_multiplex_id
         cmp dx, 0       ; If installed segment is non-zero, we found our TSR
         jne .found
 
@@ -219,21 +215,19 @@ _scan_multiplex_ids:
     ; We found our TSR
     .found:
     xor al, al  ; AL = 0 means TSR cannot be installed
-                ; DX = resident segment (set by _check_single_multiplex_id)
+                ; DX = resident segment (set by check_single_multiplex_id)
 
     .ret:
     pop bx
     ret
 
 
-;-------------------------------------------------------------------------------
 ; Checks to see if a given multiplex ID is occupied.
 ;
 ; Takes AH = the multiplex ID to check.
 ; Returns AL = 0 if that multiplex ID is available.
 ; Returns DX = resident segment if our TSR is installed here, 0 otherwise.
-;-------------------------------------------------------------------------------
-_check_single_multiplex_id:
+check_single_multiplex_id:
     ; We're about to call an unknown TSR. Save all 16-bit registers except for:
     ; - Caller-saved registers: AX, CX, DX are acceptable to clobber
     ; - Registers considered to be safe: CS:IP and SS:SP
@@ -284,12 +278,10 @@ _check_single_multiplex_id:
     ret
 
 
-;-------------------------------------------------------------------------------
 ; Installs TSR and terminates program.
 ;
 ; AL = Available multiplex ID to install into (found via scan_multiplex_ids)
-;-------------------------------------------------------------------------------
-_install_and_terminate:
+install_and_terminate:
     ; Save AL = multiplex ID so we can use it later
     push ax
 
@@ -328,7 +320,7 @@ _install_and_terminate:
     ; Copy installer to global buffer.
     ; This is to guarantee that the installation code will be located in
     ; memory at a location where it won't accidentally overwrite itself.
-    mov si, _finalize_install
+    mov si, finalize_install
     call concat_wstring
 
     ; Call installer
@@ -337,7 +329,6 @@ _install_and_terminate:
     jmp bx
 
 
-;-------------------------------------------------------------------------------
 ; Install code: Overwrite in-memory code with buffer and terminate
 ;
 ; AL = TSR ID to use for multiplex identification
@@ -346,8 +337,7 @@ _install_and_terminate:
 ;   1. Data blob (palette/font)
 ;   2. Code for video interrupt handler
 ;   3. Code for TSR multiplex handler
-;-------------------------------------------------------------------------------
-_finalize_install:
+finalize_install:
 begin_wstring
     ; Save TSR handler ID in resident global
     mov [multiplex_ax.id], al
@@ -412,14 +402,12 @@ begin_wstring
 end_wstring
 
 
-;===============================================================================
+;-------------------------------------------------------------------------------
 ; Resident code and code fragments
 ;-------------------------------------------------------------------------------
 section .text
 
-;-------------------------------------------------------------------------------
 ; Code fragments for int 10h (video) handler
-;-------------------------------------------------------------------------------
 int_10h_handler_prefix:
 begin_wstring
     ; Make sure that this call is changing the video mode
@@ -458,11 +446,9 @@ begin_wstring
     iret
 end_wstring
 
-;-------------------------------------------------------------------------------
 ; TSR multiplex handler (int 2Fh)
 ;
 ; Sets AL to a non-zero value and returns BX = the resident code segment.
-;-------------------------------------------------------------------------------
 int_2fh_handler:
 begin_wstring
     ; Make sure this call is for us
