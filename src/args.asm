@@ -100,7 +100,7 @@ parse_command_line:
     begin_while ne
         call parse_argument
         begin_if c
-            die EXIT_BAD_ARGS, "Unknown argument: ", si
+            die EXIT_BAD_ARGS, "Unknown argument: %s", si
         end_if
     end_while
 

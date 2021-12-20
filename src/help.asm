@@ -58,6 +58,6 @@ show_help:
 
     ; Print the message
     push dx
-    call print_wstring
+    call printf_raw
 
     exit 0

@@ -7,80 +7,10 @@
 
 
 ;------------------------------------------------------------------------------
-; Constants
-;------------------------------------------------------------------------------
-
-newline_string:
-    db_wstring `\r\n`
-
-
-;------------------------------------------------------------------------------
 ; Macros
 ;------------------------------------------------------------------------------
 
-; Helper for println and friends.
-; Usage:
-;   ; Push C, B, A to the stack, then call some_function 3 times
-;   multipush_multicall some_function, A, B, C
-%macro multipush_multicall 2-*
-    ; Push parameters onto the stack, in reverse order
-    %assign %%num_strings %0 - 1
-    %assign %%i 0
-    %rep %%num_strings
-        %rotate -1
-        %assign %%i %%i + 1
-        %ifstr %1
-            ; Save string to .data and push its address to stack
-            section .data
-            %%str%[%%i]: db_wstring %1
-            section .text
-            push %%str%[%%i]
-        %else
-            ; Push register/constant (address of a wstring) to stack
-            push %1
-        %endif
-    %endrep
-
-    ; Rotate a final time to restore %1 to the actual first argument
-    %rotate -1
-
-    ; Call the given function for each string
-    %if %%num_strings * 3 <= 10
-        ; Size: 3 bytes per call
-        %rep %%num_strings
-            call %1
-        %endrep
-    %else
-        ; Size: fixed cost of 10 bytes
-        mov cx, %%num_strings
-        %%loop:
-            push cx
-            call %1
-            pop cx
-            loop %%loop
-    %endif
-%endmacro
-
-
-; Print one or more strings to stdout.
-; Examples:
-;   println "Hello, world!"
-;   println "BX's string value is: ", bx
-;   println ptr_to_str, " is somewhere in the data segment."
-%macro println 1-*
-    multipush_multicall print_wstring, %{1:-1}, newline_string
-%endmacro
-
-
-; Helper for terminating with an error message.
-; Example: 'die 123, "foo"' prints "foo" to stderr and exits with code 123.
-%macro die 2-*
-    multipush_multicall eprint_wstring, %{2:-1}, newline_string
-    exit %1
-%endmacro
-
-
-%macro test_printf 1-*
+%macro process_fprintf_args 1-*
     ; Process all macro arguments in backward order
     %assign %%i %0
     %rep %0
@@ -89,20 +19,55 @@ newline_string:
         %rotate -1
         %assign %%i %%i - 1
 
-        ; Save string to .data
-        section .data
-        %%str%[%%i]: db_wstring %1
-        section .text
+        %ifstr %1
+            ; Save string to .data
+            section .data
+            %%str%[%%i]: db_wstring %1
+            section .text
+            %define %%val %%str%[%%i]
+        %else
+            %define %%val %1
+        %endif
 
         ; Generate code
         %if %%i == 0
-            mov dx, %%str%[%%i]     ; Format string goes in DX
+            ; TODO: How many bytes does this special-case save, if any?
+            mov dx, %%val           ; Format string goes in DX
         %else
-            push %%str%[%%i]        ; Format arguments go on stack
+            push %%val              ; Format arguments go on stack
         %endif
     %endrep
-    mov ax, 1                       ; Use stdout (TODO: should go in helper fn)
+%endmacro
+
+
+%macro fprintf 1-*
+    process_fprintf_args %{1:-1}
     call fprintf_raw
+%endmacro
+
+
+%macro printf 1-*
+    process_fprintf_args %{1:-1}
+    call printf_raw
+%endmacro
+
+
+%macro eprintf 1-*
+    process_fprintf_args %{1:-1}
+    call eprintf_raw
+%endmacro
+
+
+; Helper for terminating with an error message.
+; Example: 'die 123, "foo"' prints "foo" to stderr and exits with code 123.
+%macro die 2-*
+    %strcat %%fmt_str %2, `\r\n`
+    %if %0 == 2
+        eprintf %%fmt_str
+    %else
+        eprintf %%fmt_str, %{3:-1}
+    %endif
+    exit %1
 %endmacro
 
 
@@ -110,6 +75,18 @@ newline_string:
 ; Functions
 ;------------------------------------------------------------------------------
 section .text
+
+; Wrapper around fprintf_raw for printing to stdout
+printf_raw:
+    mov ax, 1
+    jmp fprintf_raw
+
+
+; Wrapper around fprintf_raw for printing to stderr
+eprintf_raw:
+    mov ax, 2
+    jmp fprintf_raw
+
 
 ; Print a format string to the given file handle
 ;
@@ -193,7 +170,7 @@ fprintf_print_literals:
     push si
     while_condition
         cmp si, di          ; Loop SI over remaining bytes of format string
-    begin_while be
+    begin_while b
         cmp byte [si], '%'  ; Break early if we hit a format specifier.
         je break
         inc si
@@ -213,40 +190,6 @@ fprintf_print_literals:
 
     pop di
     ret
-
-
-; Pops wstring from stack and prints it to the given handle.
-;
-; AX = handle to write to
-fprint_wstring:
-    push bp
-    mov bp, sp
-    push bx
-
-    ; Load BX = wstring that was on top of the stack before the function call
-    mov bx, [bp + 4]        ; BX = wstring to be printed
-
-    mov cx, [bx]            ; CX = number of bytes in the wstring
-    lea dx, [bx + 2]        ; DX = contents of the wstring
-    mov bx, ax              ; BX = handle to write to
-    mov ah, 40h             ; Write data to handle
-    int 21h
-
-    pop bx
-    pop bp
-    ret 2                   ; Remove printed wstring from stack
-
-
-; Pops wstring from stack and prints it to stdout.
-print_wstring:
-    mov ax, 1
-    jmp fprint_wstring
-
-
-; Pops wstring from stack and prints it to stderr.
-eprint_wstring:
-    mov ax, 2
-    jmp fprint_wstring
 
 
 ; PRINT_ASM
