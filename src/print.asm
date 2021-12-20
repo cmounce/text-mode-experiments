@@ -5,22 +5,24 @@
 %include 'string.asm'
 %include 'system.asm'
 
-;==============================================================================
-; Constants
-;==============================================================================
 
-_newline:
+;------------------------------------------------------------------------------
+; Constants
+;------------------------------------------------------------------------------
+
+newline_string:
     db_wstring `\r\n`
 
-;==============================================================================
+
+;------------------------------------------------------------------------------
 ; Macros
 ;------------------------------------------------------------------------------
 
 ; Helper for println and friends.
 ; Usage:
 ;   ; Push C, B, A to the stack, then call some_function 3 times
-;   _multipush_multicall some_function, A, B, C
-%macro _multipush_multicall 2-*
+;   multipush_multicall some_function, A, B, C
+%macro multipush_multicall 2-*
     ; Push parameters onto the stack, in reverse order
     %assign %%num_strings %0 - 1
     %assign %%i 0
@@ -59,33 +61,33 @@ _newline:
     %endif
 %endmacro
 
+
 ; Print one or more strings to stdout.
 ; Examples:
 ;   println "Hello, world!"
 ;   println "BX's string value is: ", bx
 ;   println ptr_to_str, " is somewhere in the data segment."
 %macro println 1-*
-    _multipush_multicall print_wstring, %{1:-1}, _newline
+    multipush_multicall print_wstring, %{1:-1}, newline_string
 %endmacro
+
 
 ; Helper for terminating with an error message.
 ; Example: 'die 123, "foo"' prints "foo" to stderr and exits with code 123.
 %macro die 2-*
-    _multipush_multicall eprint_wstring, %{2:-1}, _newline
+    multipush_multicall eprint_wstring, %{2:-1}, newline_string
     exit %1
 %endmacro
 
 
-;==============================================================================
+;------------------------------------------------------------------------------
 ; Functions
 ;------------------------------------------------------------------------------
 section .text
 
-;-------------------------------------------------------------------------------
 ; Pops wstring from stack and prints it to the given handle.
 ;
 ; AX = handle to write to
-;-------------------------------------------------------------------------------
 fprint_wstring:
     push bp
     mov bp, sp
@@ -105,17 +107,13 @@ fprint_wstring:
     ret 2                   ; Remove printed wstring from stack
 
 
-;-------------------------------------------------------------------------------
 ; Pops wstring from stack and prints it to stdout.
-;-------------------------------------------------------------------------------
 print_wstring:
     mov ax, 1
     jmp fprint_wstring
 
 
-;-------------------------------------------------------------------------------
 ; Pops wstring from stack and prints it to stderr.
-;-------------------------------------------------------------------------------
 eprint_wstring:
     mov ax, 2
     jmp fprint_wstring
