@@ -10,6 +10,8 @@
 ; Macros
 ;------------------------------------------------------------------------------
 
+; Internal macro for making print macros (e.g., printf) easier to write.
+; Code outside of print.asm should not call this directly.
 %macro process_fprintf_args 1-*
     ; Process all macro arguments in backward order
     %assign %%i %0
@@ -40,21 +42,27 @@
 %endmacro
 
 
-%macro fprintf 1-*
-    process_fprintf_args %{1:-1}
-    call fprintf_raw
-%endmacro
-
-
+; Print a formatted string to stdout
+; Examples:
+;   - printf "Hello, world!"
+;   - printf "BX's string value is: %s", bx
 %macro printf 1-*
     process_fprintf_args %{1:-1}
     call printf_raw
 %endmacro
 
 
+; Like printf, but prints to stderr
 %macro eprintf 1-*
     process_fprintf_args %{1:-1}
     call eprintf_raw
+%endmacro
+
+
+; Like printf, but prints to AX = file handle
+%macro fprintf 1-*
+    process_fprintf_args %{1:-1}
+    call fprintf_raw
 %endmacro
 
 
@@ -132,6 +140,7 @@ fprintf_raw:
                 mov cx, [bp]        ; CX = length of wstring
                 lea dx, [bp + 2]    ; DX = contents of wstring
                 pop bp
+                ; TODO: save a few bytes by deduplicating this
                 mov ah, 40h         ; Write to handle
                 int 21h
 
@@ -143,6 +152,8 @@ fprintf_raw:
                 mov dx, si      ; Print from SI
                 mov ah, 40h     ; Write to handle
                 int 21h
+                ; TODO: Advance past format specifier in a more elegant way.
+                ; Maybe a separate parsing function that advances SI?
                 inc si          ; Move SI past this byte
             end_if
         else
