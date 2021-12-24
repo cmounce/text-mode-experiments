@@ -1,11 +1,11 @@
-;; ZZT All-Purpose TSR (rewrite)
-org 100h                ; Adjust addresses for DOS .COM file
+; ZZT All-Purpose TSR (rewrite)
+org 100h                        ; Adjust addresses for DOS .COM file
 cpu 286
 
-section .text                           ; Non-resident code (parameter parsing, etc)
-section .data   follows=.text           ; Non-resident data (help text, etc)
-section .append follows=.data           ; Reserve space for palette/font appended to .COM file
-section .bss    start=20*1024           ; Non-initialized data, as usual
+section .text                   ; Non-resident code (parameter parsing, etc)
+section .data   follows=.text   ; Non-resident data (help text, etc)
+section .append follows=.data   ; Reserve space for bundled data
+section .bss    start=20*1024   ; Non-initialized data, as usual
 
 ; Define a buffer that begins just after .bss and stretches until the stack.
 global_buffer equ section..bss.start + bss_size
@@ -15,13 +15,13 @@ global_buffer equ section..bss.start + bss_size
 ; - 20K to 60K: BSS; Buffer space for assembling installable
 ; - 60K to 64K: Stack space
 
-;==============================================================================
-; Program start
+
+;------------------------------------------------------------------------------
+; Code
 ;------------------------------------------------------------------------------
 section .text
 
 jmp main
-
 %include 'args.asm'
 %include 'bundle.asm'
 %include 'help.asm'
@@ -32,8 +32,14 @@ jmp main
 %include 'system.asm'
 %include 'video.asm'
 
+
+; Program entry point
 main:
-    call init_bss
+    ; Initialize BSS section to zeros
+    mov cx, bss_size
+    mov di, section..bss.start
+    mov al, 0
+    rep stosb
 
     ; Parse/validate the data bundle at the end of the .COM file
     call parse_bundled_data
@@ -76,16 +82,9 @@ main:
     exit 0
 
 
-;-------------------------------------------------------------------------------
-; Initializes BSS section to zeros
-;-------------------------------------------------------------------------------
-init_bss:
-    mov cx, bss_size
-    mov di, section..bss.start
-    mov al, 0
-    rep stosb
-    ret
-
+;------------------------------------------------------------------------------
+; Other stuff
+;------------------------------------------------------------------------------
 
 ; Measure the size of .bss.
 ; In order for this to include everything, nothing can be added to .bss after
