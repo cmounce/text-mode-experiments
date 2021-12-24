@@ -1,22 +1,6 @@
-# text-mode-initializer
-A DOS TSR that changes the font, palette, and toggles high-intensity colors,
-all in one command.
+# Text-mode experiments
+This is a dumping ground for code that is tangential to my TSR project.
+I didn't want it clogging up [the other repo](https://github.com/cmounce/text-mode-initializer/), so here it is.
 
-This is a rewrite of the original 2008 project, which is located under
-`legacy/` for historical purposes.
-
-## Building
-Change to the `src/` folder and run `make`.
-
-Alternatively, you can manually compile with NASM like so:
-
-```
-nasm -f bin main.asm -o TSR.COM
-```
-
-## Usage
-Under DOS (or your favorite emulator, e.g., DOSBox), you can run
-`TSR i` to initialize the TSR, and `TSR u` to uninstall it.
-
-## License
-Everything is under the MIT License, unless otherwise noted.
+If you are doing DOS text-mode stuff, this repo may be of interest to you!
+But the stuff here may be less polished and/or undocumented.
