@@ -175,31 +175,24 @@ fprintf_raw:
 ; DI = end of format string (exclusive)
 ; Advances SI past the last byte printed.
 fprintf_print_literals:
-    push di
+    ; Save DX = start of bytes to print
+    mov dx, si
 
-    ; Set DI = first byte that shouldn't be printed
-    push si
+    ; Advance SI past all bytes we're printing
     while_condition
-        cmp si, di          ; Loop SI over remaining bytes of format string
+        cmp si, di          ; Iterate SI as far as the end of the format string
     begin_while b
-        cmp byte [si], '%'  ; Break early if we hit a format specifier.
+        cmp byte [si], '%'  ; Break early if we hit a format specifier
         je break
         inc si
     end_while
-    mov di, si              ; DI = end of printable area (exclusive)
-    pop si                  ; Restore SI = start of area to print
 
-    ; Print byte range delimited by SI, DI
-    mov cx, di      ; CX = number of bytes to print
-    sub cx, si
-    mov dx, si      ; DX = start of what to print
-    mov ah, 40h     ; Write data to handle
+    ; Print bytes from DX to SI
+    mov cx, si      ; CX = number of bytes to print = SI - DX
+    sub cx, dx
+    mov ah, 40h     ; Write data to handle in BX
     int 21h
 
-    ; Advance SI past all bytes printed
-    mov si, di
-
-    pop di
     ret
 
 
