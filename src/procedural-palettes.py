@@ -63,20 +63,23 @@ def generate_rgb332():
 
 def generate_ramp8():
     """Generates a 8-color ramp"""
-    # Make all 3-bit colors, sorted by brightness
+    # Make an 8-color palette in CGA order
     off_on = [0.0, 1.0]
-    rgb_colors = list(itertools.product(off_on, off_on, off_on))
-    lab_colors = [to_oklab(rgb) for rgb in rgb_colors]
-    lab_colors.sort()
+    rgb_colors = sorted(itertools.product(off_on, off_on, off_on))
+
+    # Sort the colors by brightness, but remember their original indexes
+    lab_colors = sorted((to_oklab(rgb), i) for i, rgb in enumerate(rgb_colors))
 
     # Even out the brightness
-    for i in range(8):
+    for i, (color, old_i) in enumerate(lab_colors):
         brightness = i/7
-        color = lab_colors[i]
-        lab_colors[i] = (brightness, color[1], color[2])
+        lab_colors[i] = ((brightness, color[1], color[2]), old_i)
 
-    # Convert to RGB and double the result
-    rgb_colors = [to_srgb(lab) for lab in lab_colors]
+    # Change the colors back to RGB and put them in their original order
+    for lab_color, old_i in lab_colors:
+        rgb_colors[old_i] = to_srgb(lab_color)
+
+    # Double the result to 16 colors
     return Palette(rgb_colors + rgb_colors)
 
 
